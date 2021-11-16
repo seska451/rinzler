@@ -1,19 +1,16 @@
-use std::borrow::{Borrow, BorrowMut};
+use std::borrow::{Borrow};
 use std::env;
-use std::error::Error;
-use std::string::ParseError;
 use clap::{Arg, App, ArgMatches};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::Client;
 use url::{Url};
-use tracing::{info, warn, debug, trace, error, Level};
+use tracing::{info, debug, trace, error, Level};
 use tracing_subscriber;
 use tracing_subscriber::fmt::SubscriberBuilder;
 use select::document::Document;
 use select::predicate::Name;
 use std::thread;
 use std::time::Duration;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use queues::*;
 
 #[tokio::main]
@@ -83,10 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut visit_queue = queues::Queue::new();
     let mut visited : Vec<Url> = Vec::new();
     scoped_hosts.clone().for_each(|u| {
-        visit_queue.add(u.clone());
+        match visit_queue.add(u.clone()) {
+            Ok(_) => (),
+            Err(why) => error!("{}", why),
+        };
     });
 
-    let mut scoped_domains: Vec<Url> =
+    let scoped_domains: Vec<Url> =
         scoped_hosts.clone().map(|host|
             Url::parse(host.as_str()).unwrap()).collect();
 
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if !has_been_visited && ( scoped && is_in_scope || !scoped) {
                     //if we've set limit and the new url domain is in scope, or there are no limits
                     //then visit the url
-                    visit_url(url, &mut visit_queue, &mut visited, &ua, ratelimit, scoped).await?
+                    visit_url(url, &mut visit_queue, &mut visited, &ua, ratelimit).await?
                 }
             },
             Err(why) => error!("{}", why)
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn visit_url(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, ua: &str, ratelimit: u64, limit: bool) -> Result<(), Box<dyn std::error::Error>> {
+async fn visit_url(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, ua: &str, ratelimit: u64) -> Result<(), Box<dyn std::error::Error>> {
     info!("Reading URL {}", &url);
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_str(ua).unwrap());
@@ -135,7 +135,10 @@ async fn visit_url(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, u
             debug!("🔍 Found URL: {}", href);
             thread::sleep(Duration::from_millis(ratelimit));
             let to_visit = url_parsed.join(href).unwrap();
-             q.add(String::from(to_visit));
+             match q.add(String::from(to_visit)) {
+                Ok(_) => (),
+                Err(why) => error!("{}", why)
+             }
         });
     Ok(())
 }
