@@ -1,0 +1,17 @@
+[package]
+name = "rinzler"
+version = "0.0.1-alpha"
+edition = "2021"
+authors = ["seska@seska.io"]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = "3.0.0-beta.5"
+indicatif = "0.16.2"
+tracing = "0.1"
+tracing-subscriber = "0.2"
+url = "2.2.2"
+reqwest = { version = "0.11", features = ["json"] }
+select = "0.6.0-alpha.1"
+tokio = { version = "1", features = ["full"] }
+queues = "1.0.2"
