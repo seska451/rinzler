@@ -16,7 +16,7 @@
 - Supports startup options via env vars
 
 ## Planned
-- forced browsing via weblist support
+- forced browsing via wordlists
 - simple fuzzing
 
 # Installation
