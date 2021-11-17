@@ -8,6 +8,7 @@
 🙌       a fast webcrawler        🙌
 🙌       from seska with ♡♡♡      🙌
 ```
+[![asciicast](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A.svg)](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A)
 # Features
 - Webcrawler, hunts for links and follows them
 - Can be given a list of hosts to crawl
