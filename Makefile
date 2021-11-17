@@ -7,6 +7,9 @@ build:
 
 release:
 	cargo build --release
+	cd $(targetDir) && \
+	zip rinzler.arm64.darwin.v0.0.1-alpha.zip ./rinzler && \
+	mv ./rinzler.arm64.darwin.v0.0.1-alpha.zip ../..
 
 install: release
 	mkdir -p $(installDir)
