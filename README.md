@@ -11,22 +11,23 @@
 # Features
 - Webcrawler, hunts for links and follows them
 - Can be given a list of hosts to crawl
-- By default is limited to browsing within its original scope
+- By default, is limited to browsing within its original scope
 - Can be unshackled to exhaust all URLs
 - Supports startup options via env vars
 
 ## Planned
-- forced browsing via wordlists
+- forced browsing via wordlist
 - simple fuzzing
 
 # Installation
 
 Requires rust to compile from source
 
+By default, it will install to `$HOME/bin` so make sure that is on your `$PATH`!
 ```bash
 git clone https://github.com/seska451/rinzler.git
 cd rinzler
-cargo build --release
+make install
 ```
 
 # Usage by example
