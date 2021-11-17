@@ -1,5 +1,5 @@
 use std::env;
-use clap::{Arg, App};
+use clap::{Arg, App, ArgMatches};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::Client;
 use url::{Url};
@@ -92,11 +92,16 @@ fn parse_cmd_line() -> Settings {
         .version(env!("CARGO_PKG_VERSION"))
         .author("seska <seska@seska.io>")
         .about("A simple to use, multithreaded web crawler written in rustlang.")
+        .arg(Arg::new("single_host")
+                 .index(1)
+                 .conflicts_with("host")
+                 .required(true)
+                 .value_name("HOST URL")
+                 .about("The host URL to scan"))
         .arg(Arg::new("host")
             .short('h')
             .long("host")
             .value_name("HOST URL")
-            .required(true)
             .multiple_occurrences(true)
             .env("RINZLER_HOSTS")
             .takes_value(true)
@@ -144,8 +149,21 @@ fn parse_cmd_line() -> Settings {
             2 => Level::DEBUG,
             _ => Level::TRACE,
         },
-        hosts: args.values_of_lossy("host").unwrap().into_iter(),
+        hosts: get_hosts_from_args(args),
         quiet: false,
+    }
+}
+
+fn get_hosts_from_args(args: ArgMatches) -> IntoIter<String> {
+    match args.values_of_lossy("host") {
+        Some(hosts) => hosts.into_iter(),
+        None => {
+            let single_host =
+                args.value_of("single_host").unwrap().to_string();
+            let mut vec: Vec<String> = Vec::new();
+            vec.push(single_host);
+            vec.into_iter()
+        }
     }
 }
 
@@ -197,7 +215,7 @@ fn print_banner() {
     println!("🙌   a fast webcrawler      🙌");
     println!("🙌   from seska with ♡♡♡    🙌");
     println!("🙌                          🙌");
-    println!("🙌    rinzler --url URL     🙌");
+    println!("🙌   usage: rinzler <URL>   🙌");
     println!("🙌                          🙌");
 }
 

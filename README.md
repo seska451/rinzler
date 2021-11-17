@@ -32,11 +32,12 @@ cargo build --release
 # Usage by example
 ```bash
 USAGE:
-    rinzler [OPTIONS] --host <HOST URL>
+    rinzler [OPTIONS] <HOST URL>
+
+ARGS:
+    <HOST URL>    The host URL to scan
 
 OPTIONS:
-    -f, --format <OUTPUT FORMAT>     Controls the type of output. Supports 'txt' & 'json', defaults
-                                     to 'txt'. [env: RINZLER_FORMAT=]
     -h, --host <HOST URL>            Set the initial URL to start crawling. Can be set multiple
                                      times to crawl several sites at once. [env: RINZLER_HOSTS=]
         --help                       Print help information
@@ -48,8 +49,9 @@ OPTIONS:
                                      specified. Defaults to true. [default: true]
     -u, --user-agent <user-agent>    Set the user-agent header. Defaults to '0.0.1-alpha' [env:
                                      RINZLER_UA=] [default: "rinzler v0.0.1-alpha"]
-    -v                               Sets the level of output verbosity. Set multiple times
+    -v                               Sets the level of output verbosity. Set multiple times 
     -V, --version                    Print version information
+
 ```
 ## get help
 ```bash
@@ -57,7 +59,7 @@ rinzler --help
 ```
 ## crawling a single host
 ```bash
-rinzler --host https://crawler-test.com 
+rinzler https://crawler-test.com 
 ```
 ## crawling multiple hosts
 ```bash
