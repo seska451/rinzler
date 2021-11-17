@@ -1,21 +1,94 @@
-use std::borrow::{Borrow};
 use std::env;
-use clap::{Arg, App, ArgMatches};
+use clap::{Arg, App};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::Client;
 use url::{Url};
 use tracing::{info, debug, trace, error, Level};
 use tracing_subscriber;
-use tracing_subscriber::fmt::SubscriberBuilder;
 use select::document::Document;
 use select::predicate::Name;
 use std::thread;
 use std::time::Duration;
+use std::vec::IntoIter;
 use queues::*;
+
+struct Settings {
+    user_agent: String,
+    rate_limit: u64,
+    scoped: bool,
+    verbosity: Level,
+    quiet: bool,
+    hosts: IntoIter<String>
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let matches = App::new("rinzler")
+    let settings = parse_cmd_line();
+    if !settings.quiet {
+        print_banner();
+    }
+    configure_logging(settings.verbosity);
+    run(&settings).await?;
+    Ok(())
+}
+
+async fn run(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
+    let mut visit_queue = queues::Queue::new(); // this queue contains all desired locations to visit
+    let mut visited : Vec<Url> = Vec::new();                  // this tracks which locations have already been visited
+    let mut scoped_domains: Vec<Url> = Vec::new();            // keep a list of scoped domains to restrict search scope later
+
+    initialize_visitation_queue(settings, &mut visit_queue, &mut scoped_domains);
+
+    loop {
+        //commence the crawl
+        //pop the next url to visit off the queue
+        let next_url = match visit_queue.remove() {
+            Ok(next) => next,
+            Err(why) => {
+                error!("{}", why);
+                break
+            }
+        };
+
+        //parse the url
+        match Url::parse(next_url.as_str()) {
+            Ok(url) => {
+                let is_scoped_scan = settings.scoped.clone();
+
+                //if we're doing a scoped scan and the new url domain is in scope
+                //if we're doing an unscoped scan
+                if !get_has_been_visited(&mut visited, &url) && (is_scoped_scan && get_is_url_in_scope(&mut scoped_domains, &url) || !is_scoped_scan) {
+                    //then visit the url
+                    crawl(url.to_string(), &mut visit_queue, &mut visited, &settings.user_agent, settings.rate_limit.clone()).await?
+                }
+            }
+            Err(why) => error!("{}", why)
+        }
+        if visit_queue.size() == 0 { break }
+    }
+    Ok(())
+}
+
+fn get_has_been_visited(visited: &mut Vec<Url>, url: &Url) -> bool {
+    visited.iter().any(|y| y == url)
+}
+
+fn get_is_url_in_scope(scoped_domains: &mut Vec<Url>, url: &Url) -> bool {
+    scoped_domains.iter().map(|x| x.domain()).into_iter().any(|y| y.unwrap() == url.domain().unwrap())
+}
+
+fn initialize_visitation_queue(settings: &Settings, visit_queue: &mut Queue<String>, scoped_domains: &mut Vec<Url>) {
+    settings.hosts.clone().for_each(|u| {
+        scoped_domains.push(Url::parse(u.as_str()).unwrap());
+        match visit_queue.add(u.clone()) {
+            Ok(_) => (),
+            Err(why) => error!("{}", why),
+        };
+    });
+}
+
+fn parse_cmd_line() -> Settings {
+    let args = App::new("rinzler")
         .version(env!("CARGO_PKG_VERSION"))
         .author("seska <seska@seska.io>")
         .about("A simple to use, multithreaded web crawler written in rustlang.")
@@ -32,12 +105,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .short('v')
             .multiple_occurrences(true)
             .about("Sets the level of output verbosity. Set multiple times "))
-        .arg(Arg::new("format")
-            .short('f')
-            .long("format")
-            .value_name("OUTPUT FORMAT")
-            .env("RINZLER_FORMAT")
-            .about("Controls the type of output. Supports 'txt' & 'json', defaults to 'txt'."))
         .arg(Arg::new("quiet")
             .short('q')
             .long("quiet")
@@ -62,57 +129,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .takes_value(true)
             .default_value("0")
             .about("Set the number of milliseconds to wait between each request."))
+        .get_matches().to_owned();
 
-        .get_matches();
-
-    if !matches.is_present("quiet") {
-        print_banner();
+    Settings {
+        user_agent: match args.value_of("user-agent") {
+            Some(ua) => ua.to_string(),
+            None => env!("CARGO_PKG_VERSION").to_string()
+        },
+        rate_limit: args.value_of("rate-limit").unwrap().parse::<u64>().unwrap(),
+        scoped: args.value_of("scoped").unwrap().parse::<bool>().unwrap(),
+        verbosity: match args.occurrences_of("verbosity") {
+            0 => Level::WARN,
+            1 => Level::INFO,
+            2 => Level::DEBUG,
+            _ => Level::TRACE,
+        },
+        hosts: args.values_of_lossy("host").unwrap().into_iter(),
+        quiet: false,
     }
-
-    let subscriber_builder = tracing_subscriber::fmt();
-    configure_logging(&matches, subscriber_builder);
-    let ua =  matches.borrow().value_of("user-agent").unwrap();
-    let ratelimit_string = matches.borrow().value_of("rate-limit").unwrap();
-    let ratelimit = ratelimit_string.parse::<u64>().unwrap();
-    let scoped_hosts = matches.values_of_lossy("host").unwrap().into_iter();
-    let scoped = matches.borrow().value_of("scoped").unwrap().parse::<bool>().unwrap();
-
-    let mut visit_queue = queues::Queue::new();
-    let mut visited : Vec<Url> = Vec::new();
-    scoped_hosts.clone().for_each(|u| {
-        match visit_queue.add(u.clone()) {
-            Ok(_) => (),
-            Err(why) => error!("{}", why),
-        };
-    });
-
-    let scoped_domains: Vec<Url> =
-        scoped_hosts.clone().map(|host|
-            Url::parse(host.as_str()).unwrap()).collect();
-
-    loop {
-        let url = visit_queue.remove().unwrap();
-        let url_str = url.as_str();
-
-        match Url::parse(url_str) {
-            Ok(u) => {
-                let is_in_scope = scoped_domains.iter().map(|x| x.domain()).into_iter().any(|y| y.unwrap() == u.domain().unwrap());
-                let has_been_visited = visited.iter().any(|y| y == &u);
-                if !has_been_visited && ( scoped && is_in_scope || !scoped) {
-                    //if we've set limit and the new url domain is in scope, or there are no limits
-                    //then visit the url
-                    visit_url(url, &mut visit_queue, &mut visited, &ua, ratelimit).await?
-                }
-            },
-            Err(why) => error!("{}", why)
-        }
-        if visit_queue.size() == 0 { break; }
-    }
-
-    Ok(())
 }
 
-async fn visit_url(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, ua: &str, ratelimit: u64) -> Result<(), Box<dyn std::error::Error>> {
+async fn crawl(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, ua: &str, ratelimit: u64) -> Result<(), Box<dyn std::error::Error>> {
     info!("Reading URL {}", &url);
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_str(ua).unwrap());
@@ -143,16 +180,8 @@ async fn visit_url(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, u
     Ok(())
 }
 
-fn configure_logging(matches: &ArgMatches, subscriber_builder: SubscriberBuilder) {
-    let verbosity_level = matches.occurrences_of("verbosity");
-    let builder = match verbosity_level {
-        0 => subscriber_builder.with_max_level(Level::WARN),
-        1 => subscriber_builder.with_max_level(Level::INFO),
-        2 => subscriber_builder.with_max_level(Level::DEBUG),
-        _ => subscriber_builder.with_max_level(Level::TRACE),
-    };
-
-    builder.init();
+fn configure_logging(verbosity_level: Level) {
+    tracing_subscriber::fmt().with_max_level(verbosity_level).init();
     info!("Verbosity level set to {}", verbosity_level);
     trace!("configured logging");
 }

@@ -26,7 +26,7 @@ Requires rust to compile from source
 ```bash
 git clone https://github.com/seska451/rinzler.git
 cd rinzler
-cargo build
+cargo build --release
 ```
 
 # Usage by example
