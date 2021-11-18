@@ -1,30 +1,22 @@
 use std::thread;
 use std::time::Duration;
-use queues::{IsQueue, Queue};
+use regex::Regex;
 use reqwest::Client;
-use select::document::Document;
-use select::predicate::Name;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use url::Url;
 use crate::{HeaderMap, HeaderValue, Settings, USER_AGENT};
 
 pub async fn run(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
-    let mut visit_queue = queues::Queue::new(); // this queue contains all desired locations to visit
     let mut visited : Vec<Url> = Vec::new();                  // this tracks which locations have already been visited
     let mut scoped_domains: Vec<Url> = Vec::new();            // keep a list of scoped domains to restrict search scope later
+    let mut to_visit : Vec<String> = Vec::new();              // this stack contains all desired locations to visit
 
-    initialize_visitation_queue(settings, &mut visit_queue, &mut scoped_domains);
+    init_visitees(settings, &mut to_visit, &mut scoped_domains);
 
     loop {
         //commence the crawl
         //pop the next url to visit off the queue
-        let next_url = match visit_queue.remove() {
-            Ok(next) => next,
-            Err(why) => {
-                error!("{}", why);
-                break
-            }
-        };
+        let next_url = to_visit.remove(0);
 
         //parse the url
         match Url::parse(next_url.as_str()) {
@@ -35,12 +27,12 @@ pub async fn run(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> 
                 //if we're doing an unscoped scan
                 if !get_has_been_visited(&mut visited, &url) && (is_scoped_scan && get_is_url_in_scope(&mut scoped_domains, &url) || !is_scoped_scan) {
                     //then visit the url
-                    crawl(url.to_string(), &mut visit_queue, &mut visited, &settings.user_agent, settings.rate_limit.clone()).await?
+                    crawl(url.to_string(), &mut to_visit, &mut visited, &settings.user_agent, settings.rate_limit.clone()).await?
                 }
             }
             Err(why) => error!("{}", why)
         }
-        if visit_queue.size() == 0 { break }
+        if to_visit.is_empty() { break }
     }
     Ok(())
 }
@@ -50,20 +42,29 @@ fn get_has_been_visited(visited: &mut Vec<Url>, url: &Url) -> bool {
 }
 
 fn get_is_url_in_scope(scoped_domains: &mut Vec<Url>, url: &Url) -> bool {
-    scoped_domains.iter().map(|x| x.domain()).into_iter().any(|y| y.unwrap() == url.domain().unwrap())
+    scoped_domains.iter()
+        .map(|u| match u.domain() {
+            Some(domain) => domain,
+            None => panic!("invalid scoped domain")
+        }).into_iter()
+        .any(|domain|  domain == url.domain().unwrap_or_default())
 }
 
-fn initialize_visitation_queue(settings: &Settings, visit_queue: &mut Queue<String>, scoped_domains: &mut Vec<Url>) {
+fn init_visitees(settings: &Settings, to_visit: &mut Vec<String>, scoped_domains: &mut Vec<Url>) {
     settings.hosts.clone().for_each(|u| {
-        scoped_domains.push(Url::parse(u.as_str()).unwrap());
-        match visit_queue.add(u.clone()) {
-            Ok(_) => (),
-            Err(why) => error!("{}", why),
+        let url : Url = match Url::parse(u.as_str()) {
+            Ok(u) => u,
+            Err(why) => panic!("supplied scope wasn't a valid domain: {}", why)
         };
+        if !scoped_domains.contains(&url) {
+            scoped_domains.push(url);
+        }
+        to_visit.push(u.clone());
     });
 }
 
-async fn crawl(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, ua: &str, ratelimit: u64) -> Result<(), Box<dyn std::error::Error>> {
+
+async fn crawl(url: String, to_visit: &mut Vec<String>, visited: &mut Vec<Url>, ua: &str, ratelimit: u64) -> Result<(), Box<dyn std::error::Error>> {
     info!("Reading URL {}", &url);
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_str(ua).unwrap());
@@ -79,17 +80,22 @@ async fn crawl(url: String, q: &mut Queue<String>, visited: &mut Vec<Url>, ua: &
     println!("{}: {}", res.status(), res.url());
     let body = res.text().await?;
 
-    Document::from(body.as_str())
-        .select(Name("a"))
-        .filter_map(|n| n.attr("href"))
-        .for_each(|href|  {
-            debug!("🔍 Found URL: {}", href);
-            thread::sleep(Duration::from_millis(ratelimit));
-            let to_visit = url_parsed.join(href).unwrap();
-            match q.add(String::from(to_visit)) {
-                Ok(_) => (),
-                Err(why) => error!("{}", why)
+    // Document::from(body.as_str())
+    //     .select(Name("a"))
+    //     .filter_map(|n| n.attr("href"))
+    let url_finder : Regex = Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
+    url_finder.captures_iter(body.as_str())
+    .for_each(|captures|  {
+            match captures.get(1) {
+                Some(u) => {
+                    info!("🔍 Found URL: {}", u.as_str());
+                    thread::sleep(Duration::from_millis(ratelimit));
+                    let part_url = url_parsed.join(u.as_str()).unwrap();
+                    to_visit.push(String::from(part_url))
+                },
+                None => ()
             }
-        });
+
+    });
     Ok(())
 }

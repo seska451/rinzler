@@ -5,6 +5,7 @@ use tracing::{info, trace, Level};
 use tracing_subscriber;
 use std::vec::IntoIter;
 use config::Settings;
+use stopwatch::Stopwatch;
 mod crawler;
 mod config;
 
@@ -15,11 +16,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         print_banner();
     }
     configure_logging(settings.verbosity);
+    let sw = Stopwatch::start_new();
     crawler::run(&settings).await?;
+    println!("Crawl execution time {}s", sw.elapsed().as_secs());
     Ok(())
 }
-
-
 
 fn parse_cmd_line() -> Settings {
     let args = App::new("rinzler")
@@ -101,7 +102,6 @@ fn get_hosts_from_args(args: ArgMatches) -> IntoIter<String> {
     }
 }
 
-
 fn configure_logging(verbosity_level: Level) {
     tracing_subscriber::fmt().with_max_level(verbosity_level).init();
     info!("Verbosity level set to {}", verbosity_level);
@@ -122,4 +122,3 @@ fn print_banner() {
     println!("🙌   usage: rinzler <URL>   🙌");
     println!("🙌                          🙌");
 }
-
