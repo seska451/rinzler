@@ -3,7 +3,6 @@ use clap::{Arg, App, ArgMatches};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use tracing::{info, trace, Level};
 use tracing_subscriber;
-use std::vec::IntoIter;
 use config::Settings;
 use stopwatch::Stopwatch;
 mod crawler;
@@ -109,15 +108,15 @@ fn parse_cmd_line() -> Settings {
     }
 }
 
-fn get_hosts_from_args(args: ArgMatches) -> IntoIter<String> {
+fn get_hosts_from_args(args: ArgMatches) -> Vec<String> {
     match args.values_of_lossy("host") {
-        Some(hosts) => hosts.into_iter(),
+        Some(hosts) => hosts,
         None => {
             let single_host =
                 args.value_of("single_host").unwrap().to_string();
             let mut vec: Vec<String> = Vec::new();
             vec.push(single_host);
-            vec.into_iter()
+            vec
         }
     }
 }

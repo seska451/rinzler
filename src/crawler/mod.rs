@@ -51,7 +51,7 @@ fn get_is_url_in_scope(scoped_domains: &mut Vec<Url>, url: &Url) -> bool {
 }
 
 fn init_visitees(settings: &Settings, to_visit: &mut Vec<String>, scoped_domains: &mut Vec<Url>) {
-    settings.hosts.clone().for_each(|u| {
+    settings.hosts.clone().into_iter().for_each(|u| {
         let url : Url = match Url::parse(u.as_str()) {
             Ok(u) => u,
             Err(why) => panic!("supplied scope wasn't a valid domain: {}", why)
