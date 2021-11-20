@@ -33,6 +33,18 @@ fn parse_cmd_line() -> Settings {
                  .required(true)
                  .value_name("HOST URL")
                  .about("The host URL to scan"))
+        .arg(Arg::new("shallow")
+            .short('S')
+            .long("shallow")
+            .conflicts_with("deep")
+            .takes_value(false)
+            .about("Indicates use of a shallow (non-recursive) scan. By default a deep crawl (recursive) is performed, unless fuzzing or forced browsing is used."))
+        .arg(Arg::new("deep")
+            .short('D')
+            .long("deep")
+            .conflicts_with("shallow")
+            .takes_value(false)
+            .about("Indicates use of a deep (recursive) scan. This is done by default, unless fuzzing or forced browsing is used."))
         .arg(Arg::new("host")
             .short('h')
             .long("host")
@@ -78,6 +90,14 @@ fn parse_cmd_line() -> Settings {
         },
         rate_limit: args.value_of("rate-limit").unwrap().parse::<u64>().unwrap(),
         scoped: args.value_of("scoped").unwrap().parse::<bool>().unwrap(),
+        recurse: match args.is_present("wordlist") || args.is_present("fuzz") {
+            true => args.is_present("deep"),
+            false => !args.is_present("shallow")
+        },
+        wordlist: match args.value_of("wordlist") {
+            Some(wl) => Some(wl.to_string()),
+            None => Option::None
+        },
         verbosity: match args.occurrences_of("verbosity") {
             0 => Level::WARN,
             1 => Level::INFO,

@@ -27,7 +27,7 @@ pub async fn run(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> 
                 //if we're doing an unscoped scan
                 if !get_has_been_visited(&mut visited, &url) && (is_scoped_scan && get_is_url_in_scope(&mut scoped_domains, &url) || !is_scoped_scan) {
                     //then visit the url
-                    crawl(url.to_string(), &mut to_visit, &mut visited, &settings.user_agent, settings.rate_limit.clone()).await?
+                    crawl(url.to_string(), &mut to_visit, &mut visited, &settings).await?
                 }
             }
             Err(why) => error!("{}", why)
@@ -64,10 +64,10 @@ fn init_visitees(settings: &Settings, to_visit: &mut Vec<String>, scoped_domains
 }
 
 
-async fn crawl(url: String, to_visit: &mut Vec<String>, visited: &mut Vec<Url>, ua: &str, ratelimit: u64) -> Result<(), Box<dyn std::error::Error>> {
+async fn crawl(url: String, to_visit: &mut Vec<String>, visited: &mut Vec<Url>, settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
     info!("Reading URL {}", &url);
     let mut headers = HeaderMap::new();
-    headers.insert(USER_AGENT, HeaderValue::from_str(ua).unwrap());
+    headers.insert(USER_AGENT, HeaderValue::from_str(settings.user_agent.as_str()).unwrap());
     let url_parsed = Url::parse(url.as_str()).unwrap();
 
     let client = Client::new();
@@ -80,22 +80,22 @@ async fn crawl(url: String, to_visit: &mut Vec<String>, visited: &mut Vec<Url>, 
     println!("{}: {}", res.status(), res.url());
     let body = res.text().await?;
 
-    // Document::from(body.as_str())
-    //     .select(Name("a"))
-    //     .filter_map(|n| n.attr("href"))
-    let url_finder : Regex = Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
-    url_finder.captures_iter(body.as_str())
-    .for_each(|captures|  {
-            match captures.get(1) {
-                Some(u) => {
-                    info!("🔍 Found URL: {}", u.as_str());
-                    thread::sleep(Duration::from_millis(ratelimit));
-                    let part_url = url_parsed.join(u.as_str()).unwrap();
-                    to_visit.push(String::from(part_url))
-                },
-                None => ()
-            }
+    if settings.recurse {
+        let url_finder : Regex = Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
+        url_finder.captures_iter(body.as_str())
+            .for_each(|captures|  {
+                match captures.get(1) {
+                    Some(u) => {
+                        info!("🔍 Found URL: {}", u.as_str());
+                        thread::sleep(Duration::from_millis(settings.rate_limit));
+                        let part_url = url_parsed.join(u.as_str()).unwrap();
+                        to_visit.push(String::from(part_url))
+                    },
+                    None => ()
+                }
 
-    });
+            });
+    }
+
     Ok(())
 }
