@@ -1,23 +1,29 @@
 use std::env;
+use std::fs::File;
+use std::io::{prelude::*, BufReader};
 use clap::{Arg, App, ArgMatches};
+use console::Emoji;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
-use tracing::{info, trace, Level};
+use tracing::{info, trace, Level, debug};
 use tracing_subscriber;
 use config::Settings;
-use stopwatch::Stopwatch;
+
 mod crawler;
 mod config;
+
+static MECHANICAL_ARM: Emoji = Emoji("🦾", "|");
+static HEARTS: Emoji = Emoji("💖💖💖", "<3 ");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = parse_cmd_line();
+
     if !settings.quiet {
         print_banner();
+        println!("{}", settings);
     }
     configure_logging(settings.verbosity);
-    let sw = Stopwatch::start_new();
     crawler::run(&settings).await?;
-    println!("Crawl execution time {}s", sw.elapsed().as_secs());
     Ok(())
 }
 
@@ -80,9 +86,27 @@ fn parse_cmd_line() -> Settings {
             .takes_value(true)
             .default_value("0")
             .about("Set the number of milliseconds to wait between each request."))
+        .arg(Arg::new("wordlist")
+            .short('w')
+            .long("wordlist")
+            .takes_value(true)
+            .env("RINZLER_WORDLIST")
+            .about("Supply a wordlist to perform forced browsing"))
+        .arg(Arg::new("status-include")
+            .short('i')
+            .long("status-include")
+            .takes_value(true)
+            .min_values(1)
+            .about("Set the status codes you're interested in."))
+        .arg(Arg::new("status-exclude")
+            .short('e')
+            .long("status-exclude")
+            .takes_value(true)
+            .min_values(1)
+            .about("Set the status codes you're not interested in."))
         .get_matches().to_owned();
 
-    Settings {
+    let mut settings = Settings {
         user_agent: match args.value_of("user-agent") {
             Some(ua) => ua.to_string(),
             None => env!("CARGO_PKG_VERSION").to_string()
@@ -93,9 +117,32 @@ fn parse_cmd_line() -> Settings {
             true => args.is_present("deep"),
             false => !args.is_present("shallow")
         },
-        wordlist: match args.value_of("wordlist") {
+        wordlist_filename: match args.value_of("wordlist") {
             Some(wl) => Some(wl.to_string()),
-            None => Option::None
+            None => None
+        },
+        wordlist: match args.value_of("wordlist") {
+            Some(wl) => {
+                debug!("Loading wordlist from {}", wl);
+                let file = File::open(wl).unwrap();
+                let reader = BufReader::new(file);
+                let mut urls = Vec::new();
+                for line in reader.lines() {
+                    if !line.as_ref().unwrap().starts_with('#') {
+                        urls.push(line.unwrap().to_string())
+                    }
+                }
+                Some(urls)
+            },
+            None => None
+        },
+        status_include: match args.values_of_t::<u16>("status-include") {
+            Ok(v) => v,
+            Err(_) => vec![]
+        },
+        status_exclude: match args.values_of_t::<u16>("status-exclude") {
+            Ok(v) => v,
+            Err(_) => vec![]
         },
         verbosity: match args.occurrences_of("verbosity") {
             0 => Level::WARN,
@@ -105,6 +152,16 @@ fn parse_cmd_line() -> Settings {
         },
         hosts: get_hosts_from_args(args),
         quiet: false,
+    };
+
+    exclude_not_found_if_force_browsing(&mut settings);
+
+    settings
+}
+
+fn exclude_not_found_if_force_browsing(settings: &mut Settings) {
+    if !settings.recurse && settings.status_exclude.is_empty() {
+        settings.status_exclude = vec![404];
     }
 }
 
@@ -134,10 +191,10 @@ fn print_banner() {
     println!("  / ___/ / __ \\/_  / / / _ \\/ ___/");
     println!(" / /  / / / / / / /_/ /  __/ /");
     println!("/_/  /_/_/ /_/ /___/_/\\___/_/");
-    println!("         v{}        ", ver);
-    println!("🙌   a fast webcrawler      🙌");
-    println!("🙌   from seska with ♡♡♡    🙌");
-    println!("🙌                          🙌");
-    println!("🙌   usage: rinzler <URL>   🙌");
-    println!("🙌                          🙌");
+    println!("            v{}        ", ver);
+    println!("{}     a fast webcrawler        {}", MECHANICAL_ARM, MECHANICAL_ARM);
+    println!("{}     from seska with {}   {}", MECHANICAL_ARM, HEARTS, MECHANICAL_ARM);
+    println!("{}                              {}", MECHANICAL_ARM, MECHANICAL_ARM);
+    println!("{}     usage: rz <URL>          {}", MECHANICAL_ARM, MECHANICAL_ARM);
+    println!("{}                              {}", MECHANICAL_ARM, MECHANICAL_ARM);
 }
