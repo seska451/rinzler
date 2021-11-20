@@ -17,8 +17,7 @@
 - Supports startup options via env vars
 
 ## Planned
-- forced browsing via wordlist
-- simple fuzzing
+You can see what we're planning for v1.0 here https://github.com/seska451/rinzler/milestone/1
 
 # Installation
 
