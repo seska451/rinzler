@@ -1,6 +1,18 @@
 use std::fmt::{Display, Formatter};
 use console::Emoji;
 use tracing::Level;
+use bitflags::bitflags;
+
+bitflags! {
+    pub struct Flags: u8 {
+        const NONE = 0x0;
+        const SCOPED = 0x01;
+        const UNSCOPED = 0x02;
+        const FUZZ = 0x16;
+        const BRUTE = 0x32;
+        const CRAWL = 0x64;
+    }
+}
 
 pub struct Settings {
     pub user_agent: String,
@@ -14,6 +26,7 @@ pub struct Settings {
     pub wordlist_filename: Option<String>,
     pub status_include: Vec<u16>,
     pub status_exclude: Vec<u16>,
+    pub flags: Flags,
 }
 
 static SWISS_FLAG: Emoji = Emoji("  🇨🇭  ", ":");
@@ -28,16 +41,7 @@ static MECHANICAL_ARM: Emoji = Emoji("  🦾  ", ":");
 impl Display for Settings {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "")?;
-        writeln!(f, "      FLAGS{} {} {} {}", SWISS_FLAG, match self.scoped {
-            true => "SCOPED",
-            false => "UNSCOPED",
-        }, match self.recurse {
-            true => "DEEP",
-            false => "SHALLOW"
-        }, match self.wordlist_filename.is_some() {
-            true => "BRUTE",
-            false => ""
-        })?;
+        writeln!(f, "      FLAGS{}{:?}", SWISS_FLAG, self.flags)?;
         if !self.status_include.is_empty() {
             let status_inc: Vec<String> = self.status_include.iter().map(|n| n.to_string()).collect();
             writeln!(f, "StatusCodes{}{}", GREEN_CHECK, status_inc.join(", "))?;

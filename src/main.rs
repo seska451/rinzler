@@ -7,6 +7,7 @@ use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use tracing::{info, trace, Level, debug};
 use tracing_subscriber;
 use config::Settings;
+use crate::config::Flags;
 
 mod crawler;
 mod config;
@@ -66,6 +67,7 @@ fn parse_cmd_line() -> Settings {
             .short('q')
             .long("quiet")
             .takes_value(false)
+            .default_value("false")
             .about("When set, this flag suppresses extraneous output like the version banner."))
         .arg(Arg::new("scoped")
             .short('s')
@@ -113,7 +115,7 @@ fn parse_cmd_line() -> Settings {
         },
         rate_limit: args.value_of("rate-limit").unwrap().parse::<u64>().unwrap(),
         scoped: args.value_of("scoped").unwrap().parse::<bool>().unwrap(),
-        recurse: match args.is_present("wordlist") || args.is_present("fuzz") {
+        recurse: match args.is_present("wordlist") {
             true => args.is_present("deep"),
             false => !args.is_present("shallow")
         },
@@ -150,15 +152,34 @@ fn parse_cmd_line() -> Settings {
             2 => Level::DEBUG,
             _ => Level::TRACE,
         },
+        quiet: args.value_of_t::<bool>("quiet").unwrap(),
         hosts: get_hosts_from_args(args),
-        quiet: false,
+        flags: Flags::NONE,
     };
 
-    exclude_not_found_if_force_browsing(&mut settings);
+    pre_configure(&mut settings);
 
     settings
 }
 
+fn pre_configure(settings: &mut Settings) {
+    settings.flags = if settings.scoped {
+        Flags::SCOPED
+    } else {
+        Flags::UNSCOPED
+    };
+    settings.flags |= if settings.recurse {
+        Flags::CRAWL
+    } else {
+        if settings.hosts.iter().any(|h| h.contains("FUZZ")) {
+            Flags::FUZZ
+        } else {
+            Flags::BRUTE
+        }
+    };
+
+    exclude_not_found_if_force_browsing(settings);
+}
 fn exclude_not_found_if_force_browsing(settings: &mut Settings) {
     if !settings.recurse && settings.status_exclude.is_empty() {
         settings.status_exclude = vec![404];
