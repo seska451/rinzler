@@ -10,11 +10,13 @@
 ```
 [![asciicast](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A.svg)](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A)
 # Features
-- Webcrawler, hunts for links and follows them
-- Can be given a list of hosts to crawl
-- By default, is limited to browsing within its original scope
-- Can be unshackled to exhaust all URLs
-- Supports startup options via env vars
+- Webcrawler
+- Fuzzer
+- Force Browser
+- Multihost
+- Scoped, or unscoped crawling
+- Easy to use
+- Can be configured with environment variables
 
 ## Planned
 You can see what we're planning for v1.0 here https://github.com/seska451/rinzler/milestone/1
@@ -33,7 +35,7 @@ make install
 # Usage by example
 ```bash
 USAGE:
-    rinzler [OPTIONS] <HOST URL>
+    rz [OPTIONS] <HOST URL>
 
 ARGS:
     <HOST URL>    The host URL to scan
@@ -56,29 +58,29 @@ OPTIONS:
 ```
 ## get help
 ```bash
-rinzler --help
+rz --help
 ```
 ## crawling a single host
 ```bash
-rinzler https://crawler-test.com 
+rz https://crawler-test.com 
 ```
 ## crawling multiple hosts
 ```bash
-rinzler --host https://crawler-test.com --host https://seska.io 
+rz --host https://crawler-test.com --host https://seska.io 
 ```
 ## rate limiting requests (50ms per request)
 ```bash
-rinzler --host https://crawler-test.com --rate-limit 50
+rz --host https://crawler-test.com --rate-limit 50
 ```
 ## run an unscoped crawl
 ```bash
-rinzler --host https://crawler-test.com --scoped=false 
+rz --host https://crawler-test.com --scoped=false 
 ```
 ## customize the UA header
 ```bash
-rinzler --host https://crawler-test.com --user-agent="Mozilla/5.0 (Linux; Android 8.0.0; SM-G960F Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.84 Mobile Safari/537.36" 
+rz --host https://crawler-test.com --user-agent="Mozilla/5.0 (Linux; Android 8.0.0; SM-G960F Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.84 Mobile Safari/537.36" 
 ```
 ## suppress the banner on start
 ```bash
-rinzler --host https://crawler-test.com --quiet 
+rz --host https://crawler-test.com --quiet 
 ```

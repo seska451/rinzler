@@ -1,5 +1,5 @@
 [package]
-name = "rinzler"
+name = "rz"
 version = "0.0.1-alpha"
 edition = "2021"
 authors = ["seska@seska.io"]
@@ -14,4 +14,4 @@ url = "2.2.2"
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 regex = "1.5.4"
-stopwatch = "0.0.7"
+console = "0.15.0"
