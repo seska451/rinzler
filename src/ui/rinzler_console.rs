@@ -91,7 +91,6 @@ impl RinzlerConsole {
                             for n in &ongoing_scans {
                                 n.1.inc(1);
                             }
-                            std::thread::sleep(Duration::from_millis(10));
                         };
                     }
                 }
