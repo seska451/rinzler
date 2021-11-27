@@ -8,7 +8,7 @@
 🙌       a fast webcrawler        🙌
 🙌       from seska with ♡♡♡      🙌
 ```
-[![asciicast](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A.svg)](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A)
+[![asciicast](https://asciinema.org/a/dEqkvxT2dtt9jFQdXw1tmvGwZ.svg)](https://asciinema.org/a/dEqkvxT2dtt9jFQdXw1tmvGwZ)
 # Features
 - Webcrawler
 - Fuzzer
