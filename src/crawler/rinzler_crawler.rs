@@ -95,27 +95,25 @@ impl RinzlerCrawler {
                 crawl_target: Some(crawl_result.clone()),
             });
 
+            let content_type = res.headers().get(reqwest::header::CONTENT_TYPE).unwrap();
+            let content_type = content_type.to_str().unwrap_or_default();
+            if !content_type.contains("text/") {
+                //skip any content that we cant use regex over
+                return;
+            }
+
             if let Ok(body) = res.text() {
-                let url_finder : Regex = Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
+                let url_finder: Regex = Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
                 url_finder.captures_iter(body.as_str())
-                    .for_each(|captures|  {
+                    .for_each(|captures| {
                         match captures.get(1) {
                             Some(u) => {
                                 let part_url = &url.join(u.as_str()).unwrap();
                                 if !visited.lock().unwrap().contains(&part_url.to_string()) {
                                     let target_domain = &part_url.domain().unwrap_or_default().to_string();
                                     if self.settings.scoped && self.scoped_domains.contains(target_domain) {
-                                        let new_crawl = RinzlerCrawler {
-                                            target: part_url.to_string(),
-                                            settings: self.settings.clone(),
-                                            controller_sender: self.controller_sender.clone(),
-                                            console_sender: self.console_sender.clone(),
-                                            scoped_domains: self.scoped_domains.clone(),
-                                        };
-                                        thread::sleep(Duration::from_millis(self.settings.rate_limit));
-                                        let _ = new_crawl.crawl(Arc::clone(&visited));
+                                        self.recurse(&visited, part_url);
                                     }
-
                                 }
                             },
                             None => ()
@@ -123,6 +121,17 @@ impl RinzlerCrawler {
                     });
             }
         }
-        Ok(())
+    }
+
+    fn recurse(&self, visited: &Arc<Mutex<Vec<String>>>, part_url: &Url) {
+        let new_crawl = RinzlerCrawler {
+            target: part_url.to_string(),
+            settings: self.settings.clone(),
+            controller_sender: self.controller_sender.clone(),
+            console_sender: self.console_sender.clone(),
+            scoped_domains: self.scoped_domains.clone(),
+        };
+        thread::sleep(Duration::from_millis(self.settings.rate_limit));
+        let _ = new_crawl.crawl(Arc::clone(&visited));
     }
 }
