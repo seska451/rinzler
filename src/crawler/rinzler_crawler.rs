@@ -73,17 +73,21 @@ impl RinzlerCrawler {
 
     fn send_abort_program_message(&self, target: &&String, why: ParseError) {
         let _ = self.console_sender.send(ConsoleMessage {
-            message_type: ConsoleMessageType::ABORT,
+            message_type: ConsoleMessageType::Abort,
             data: Err(format!("Couldn't parse '{}' as a URL: {}", &target, why)),
+            original_target: None,
             crawl_target: None,
+            total: None,
         });
     }
 
     fn send_target_found_message(&self, crawl_target: &mut CrawlTarget) {
         let _ = self.console_sender.send(ConsoleMessage {
-            message_type: ConsoleMessageType::RESULT,
+            message_type: ConsoleMessageType::Result,
             data: Ok(String::default()),
+            original_target: None,
             crawl_target: Some(crawl_target.clone()),
+            total: None,
         });
     }
 
@@ -131,9 +135,11 @@ impl RinzlerCrawler {
         crawl_target.timestamp = Local::now();
 
         let _ = self.console_sender.send(ConsoleMessage {
-            message_type: ConsoleMessageType::RESULT,
+            message_type: ConsoleMessageType::Result,
             data: Ok(String::default()),
+            original_target: None,
             crawl_target: Some(crawl_target.clone()),
+            total: None,
         });
     }
 
@@ -164,16 +170,18 @@ impl RinzlerCrawler {
     fn force_browse(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget, wordlist: Option<Vec<String>>) {
         if let Ok(base_url) = Url::parse(crawl_target.url.as_str()) {
             let wl = wordlist.unwrap();
+            self.send_start_force_browse_message(wl.len(), crawl_target.clone());
             wl.par_iter().for_each(|word| {
                 if let Ok(to_visit) = base_url.join(word.as_str()) {
-                    let mut crawl_target = CrawlTarget::from_url(to_visit.clone());
-                    self.send_target_found_message(&mut crawl_target);
+                    let new_crawl_target = CrawlTarget::from_url(to_visit.clone());
+                    self.send_force_browse_attempt(new_crawl_target.clone(), crawl_target.clone());
                     let result = self.get_response(&to_visit.to_string());
                     let response = result.unwrap();
                     let status_code = response.status();
                     if self.is_allowed(u16::from(status_code)) {
-                        self.send_target_hit_message(visited, crawl_target.clone(),&response)
+                        self.send_force_browse_hit(visited, crawl_target.clone(),&response)
                     }
+                    self.send_force_browse_progress(crawl_target.clone());
                 }
             });
         }
@@ -197,5 +205,46 @@ impl RinzlerCrawler {
         }
 
         allow
+    }
+    fn send_start_force_browse_message(&self, len: usize, ct: CrawlTarget) {
+        let _ = self.console_sender.send(ConsoleMessage {
+            message_type: ConsoleMessageType::ForceBrowseStart,
+            data: Ok(String::default()),
+            original_target: None,
+            crawl_target: Some(ct),
+            total: Some(len as u64)
+        });
+    }
+    fn send_force_browse_progress(&self, ct: CrawlTarget) {
+        let _ = self.console_sender.send(ConsoleMessage {
+            message_type: ConsoleMessageType::ForceBrowseProgress,
+            data: Ok(String::default()),
+            original_target: None,
+            crawl_target: Some(ct),
+            total: None
+        });
+    }
+    fn send_force_browse_hit(&self, visited : &Arc<Mutex<Vec<String>>>, mut ct: CrawlTarget, x: &Response) {
+        visited.lock().unwrap().push(ct.url.to_string());
+        ct.url = x.url().to_string();
+        ct.status_code = Some(u16::from(x.status()));
+        ct.timestamp = Local::now();
+
+        let _ = self.console_sender.send(ConsoleMessage {
+            message_type: ConsoleMessageType::ForceBrowseHit,
+            data: Ok(String::default()),
+            original_target: None,
+            crawl_target: Some(ct.clone()),
+            total: None
+        });
+    }
+    fn send_force_browse_attempt(&self, new_crawl_target: CrawlTarget, crawl_target: CrawlTarget) {
+        let _ = self.console_sender.send(ConsoleMessage {
+            message_type: ConsoleMessageType::ForceBrowseAttempt,
+            data: Ok(String::default()),
+            original_target: Some(crawl_target.clone()),
+            crawl_target: Some(new_crawl_target.clone()),
+            total: None,
+        });
     }
 }

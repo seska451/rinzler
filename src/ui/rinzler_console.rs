@@ -12,15 +12,33 @@ static GREEN_CHECK: Emoji = Emoji("  ✅  ", ":");
 static CROSS_MARK: Emoji = Emoji("  ❌  ", ":");
 
 pub enum ConsoleMessageType {
-    FINISH,
-    ABORT,
-    RESULT,
+    ForceBrowseStart,
+    ForceBrowseProgress,
+    ForceBrowseHit,
+    ForceBrowseAttempt,
+    Finish,
+    Abort,
+    Result,
+    NONE,
 }
 
 pub struct ConsoleMessage {
     pub(crate) message_type: ConsoleMessageType,
     pub(crate) data: Result<String, String>,
-    pub(crate) crawl_target: Option<CrawlTarget>
+    pub(crate) original_target: Option<CrawlTarget>,
+    pub(crate) crawl_target: Option<CrawlTarget>,
+    pub(crate) total: Option<u64>,
+}
+impl Clone for ConsoleMessage {
+    fn clone(&self) -> Self {
+        ConsoleMessage {
+            message_type: ConsoleMessageType::NONE,
+            data: self.data.clone(),
+            original_target: self.original_target.clone(),
+            crawl_target: self.crawl_target.clone(),
+            total: self.total.clone()
+        }
+    }
 }
 
 pub(crate) struct RinzlerConsole {
@@ -50,7 +68,30 @@ impl RinzlerConsole {
             let console_message = self.message_receiver.try_recv();
             if let Ok(command) = console_message {
                 match command.message_type {
-                    ConsoleMessageType::FINISH => {
+                    ConsoleMessageType::NONE => {}
+                    ConsoleMessageType::ForceBrowseStart => {
+                        let pb = m.add(ProgressBar::new(command.total.unwrap()));
+                        pb.set_style(ProgressStyle::default_bar());
+                        ongoing_scans.insert(command.crawl_target.unwrap(), pb);
+                    },
+                    ConsoleMessageType::ForceBrowseProgress => {
+                        let pb = &ongoing_scans.get(&command.crawl_target.unwrap()).unwrap();
+                        pb.inc(1);
+                    },
+                    ConsoleMessageType::ForceBrowseHit => {
+                        let ct = &command.crawl_target.clone();
+                        let pb = &ongoing_scans.get(&ct.clone().unwrap()).unwrap();
+                        pb.println(format!("{}", &ct.clone().unwrap()));
+                        pb.inc(1);
+                    },
+                    ConsoleMessageType::ForceBrowseAttempt => {
+                        let c3 = command.clone();
+                        let old = c3.original_target.unwrap();
+                        let pb = &ongoing_scans.get(&old).unwrap();
+                        let new = c3.crawl_target.unwrap();
+                        pb.set_message(format!("{}", new.url));
+                    },
+                    ConsoleMessageType::Finish => {
                         let output = format!(
                             "\n{} Scan Finished: {}\n",
                             GREEN_CHECK,
@@ -59,7 +100,7 @@ impl RinzlerConsole {
                         let _ = self.terminal.write_line(output.as_str());
                         break;
                     },
-                    ConsoleMessageType::ABORT => {
+                    ConsoleMessageType::Abort => {
                         if let Err(error) = command.data {
                             let output = format!(
                                 "\n{} Scan Failed: {}\n",
@@ -70,7 +111,7 @@ impl RinzlerConsole {
                         };
                         break;
                     },
-                    ConsoleMessageType::RESULT => {
+                    ConsoleMessageType::Result => {
                         let _ = if !self.settings.quiet {
                             if let Some(crawl_tgt) = command.crawl_target {
                                 if HashMap::contains_key(&ongoing_scans, &crawl_tgt) {

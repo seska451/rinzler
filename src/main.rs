@@ -47,9 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn inform_console_to_exit(reason: Result<String, String>, command_tx: Sender<ConsoleMessage>) {
     thread::sleep(Duration::from_secs(1));
     let _ = command_tx.send(ConsoleMessage {
-        message_type: ConsoleMessageType::FINISH,
+        message_type: ConsoleMessageType::Finish,
         data: reason,
-        crawl_target: None
+        original_target: None,
+        crawl_target: None,
+        total: None,
     });
 }
 
