@@ -6,7 +6,7 @@ use chrono::Local;
 use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
 use reqwest::{ Result};
-use url::Url;
+use url::{ParseError, Url};
 use crate::crawler::crawl_target::CrawlTarget;
 use crate::{ConsoleMessage, ConsoleMessageType, Settings};
 
@@ -56,25 +56,33 @@ impl RinzlerCrawler {
         let url = match url_parse_result {
             Ok(u) => {
                 crawl_target.url = u.to_string();
-                let _ = self.console_sender.send(ConsoleMessage {
-                    message_type: ConsoleMessageType::RESULT,
-                    data: Ok(String::default()),
-                    crawl_target: Some(crawl_target.clone()),
-                });
+                self.send_target_found_message(&mut crawl_target);
                 u
             },
-            Err(why) => {
-                let _ = self.console_sender.send(ConsoleMessage {
-                    message_type: ConsoleMessageType::ABORT,
-                    data: Err(format!("Couldn't parse '{}' as a URL: {}", &target, why)),
-                    crawl_target: None,
-                });
+            Err(why) => { //we dont want to continue when bogus urls are supplied
+                self.send_abort_program_message(&target, why);
                 return Ok(());
             }
         };
 
         self.find_new_urls(&already_visited, crawl_target.clone(), url.clone());
         Ok(())
+    }
+
+    fn send_abort_program_message(&self, target: &&String, why: ParseError) {
+        let _ = self.console_sender.send(ConsoleMessage {
+            message_type: ConsoleMessageType::ABORT,
+            data: Err(format!("Couldn't parse '{}' as a URL: {}", &target, why)),
+            crawl_target: None,
+        });
+    }
+
+    fn send_target_found_message(&self, mut crawl_target: &mut CrawlTarget) {
+        let _ = self.console_sender.send(ConsoleMessage {
+            message_type: ConsoleMessageType::RESULT,
+            data: Ok(String::default()),
+            crawl_target: Some(crawl_target.clone()),
+        });
     }
 
     fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, mut crawl_result: CrawlTarget, url: Url) {
