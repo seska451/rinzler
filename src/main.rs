@@ -2,9 +2,9 @@ use std::{env, thread};
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use clap::{Arg, App, ArgMatches};
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use threadpool::ThreadPool;
 use tracing::{info, trace, Level, debug};
 use tracing_subscriber;
@@ -27,7 +27,7 @@ mod ui;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = parse_cmd_line();
     configure_logging(settings.verbosity);
-    let (console_sender, message_receiver) = channel();
+    let (console_sender, message_receiver) = unbounded();
     let console = RinzlerConsole::new(settings.clone(), message_receiver)?;
     let thread_pool = threadpool::ThreadPool::new(settings.max_threads);
     let mut controller_receivers = vec![];
@@ -89,7 +89,7 @@ fn wait_for_crawlers_to_finish(controller_receivers: &mut Vec<Receiver<Controlle
 fn start_crawlers(settings: Settings, console_sender: Sender<ConsoleMessage>, thread_pool: &ThreadPool, hosts: Vec<String>, controller_receivers: &mut Vec<Receiver<ControllerMessage>>, visited:Arc<Mutex<Vec<String>>>, scoped_domains: Vec<String>) {
     for target in hosts {
         let settings = settings.clone();
-        let (controller_sender, controller_receiver) = channel();
+        let (controller_sender, controller_receiver) = unbounded();
         let console_sender = console_sender.clone();
         let v = Arc::clone(&visited);
         let scoped_domains = scoped_domains.clone();

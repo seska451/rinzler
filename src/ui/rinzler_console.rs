@@ -1,7 +1,6 @@
 use std::collections::{HashMap};
 use std::{io};
-use std::sync::mpsc::Receiver;
-use std::time::Duration;
+use crossbeam::channel::Receiver;
 use colored::Colorize;
 use console::{Emoji, Term};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};

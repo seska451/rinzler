@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 use chrono::{DateTime, Local};
 use colored::{ColoredString, Colorize};
 use reqwest::blocking::Response;
+use reqwest::Url;
 use uuid::Uuid;
 
 pub struct CrawlTarget {
@@ -10,6 +11,17 @@ pub struct CrawlTarget {
     pub status_code: Option<u16>,
     pub url: String,
     pub(crate) timestamp: DateTime<Local>,
+}
+
+impl CrawlTarget {
+    pub fn from_url(u: Url) -> CrawlTarget {
+        CrawlTarget {
+            id: Uuid::new_v4(),
+            status_code: None,
+            url: u.to_string(),
+            timestamp: Local::now()
+        }
+    }
 }
 
 impl Display for CrawlTarget {

@@ -1,14 +1,16 @@
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Sender;
+use crossbeam::channel::{Sender};
 use std::thread;
 use std::time::Duration;
 use chrono::Local;
 use regex::Regex;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::{ Result};
+use reqwest::blocking::Response;
 use url::{ParseError, Url};
 use crate::crawler::crawl_target::CrawlTarget;
 use crate::{ConsoleMessage, ConsoleMessageType, Settings};
+use rayon::prelude::*;
 
 pub enum ControllerMessageType {
     FINISHED,
@@ -49,15 +51,14 @@ impl RinzlerCrawler {
     }
 
     pub(crate) fn crawl(&self, already_visited: Arc<std::sync::Mutex<Vec<String>>>) -> Result<()> {
+        let wordlist = &self.settings.wordlist;
         let target = &self.target;
-        let url_parse_result = Url::parse(&target);
         let mut crawl_target = CrawlTarget::new();
 
-        let url = match url_parse_result {
+        match Url::parse(&target) {
             Ok(u) => {
                 crawl_target.url = u.to_string();
                 self.send_target_found_message(&mut crawl_target);
-                u
             },
             Err(why) => { //we dont want to continue when bogus urls are supplied
                 self.send_abort_program_message(&target, why);
@@ -65,7 +66,8 @@ impl RinzlerCrawler {
             }
         };
 
-        self.find_new_urls(&already_visited, crawl_target.clone(), url.clone());
+        self.force_browse(&already_visited, crawl_target.clone(), wordlist.to_owned());
+        self.find_new_urls(&already_visited, crawl_target.clone());
         Ok(())
     }
 
@@ -77,7 +79,7 @@ impl RinzlerCrawler {
         });
     }
 
-    fn send_target_found_message(&self, mut crawl_target: &mut CrawlTarget) {
+    fn send_target_found_message(&self, crawl_target: &mut CrawlTarget) {
         let _ = self.console_sender.send(ConsoleMessage {
             message_type: ConsoleMessageType::RESULT,
             data: Ok(String::default()),
@@ -85,26 +87,14 @@ impl RinzlerCrawler {
         });
     }
 
-    fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, mut crawl_result: CrawlTarget, url: Url) {
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_str(self.settings.user_agent.as_str()).unwrap());
-        let headers_argument = &headers;
-        let client = reqwest::blocking::Client::new();
-        if let Ok(res) = client
-            .get(url.clone())
-            .headers(headers_argument.to_owned())
-            .send() {
+    fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget) {
 
-            visited.lock().unwrap().push(url.clone().to_string());
-            crawl_result.url = res.url().to_string();
-            crawl_result.status_code = Some(u16::from(res.status()));
-            crawl_result.timestamp = Local::now();
+        let url_str = crawl_target.url.clone();
+        let url = Url::parse(url_str.as_str()).unwrap();
+        let result = self.get_response(&url_str);
 
-            let _ = self.console_sender.send(ConsoleMessage {
-                message_type: ConsoleMessageType::RESULT,
-                data: Ok(String::default()),
-                crawl_target: Some(crawl_result.clone()),
-            });
+        if let Ok(res) = result {
+            self.send_target_hit_message(visited, crawl_target, &res);
 
             let content_type = res.headers().get(reqwest::header::CONTENT_TYPE).unwrap();
             let content_type = content_type.to_str().unwrap_or_default();
@@ -134,6 +124,31 @@ impl RinzlerCrawler {
         }
     }
 
+    fn send_target_hit_message(&self, visited: &Arc<Mutex<Vec<String>>>, mut crawl_target: CrawlTarget, res: &Response) {
+        visited.lock().unwrap().push(crawl_target.url.clone());
+        crawl_target.url = res.url().to_string();
+        crawl_target.status_code = Some(u16::from(res.status()));
+        crawl_target.timestamp = Local::now();
+
+        let _ = self.console_sender.send(ConsoleMessage {
+            message_type: ConsoleMessageType::RESULT,
+            data: Ok(String::default()),
+            crawl_target: Some(crawl_target.clone()),
+        });
+    }
+
+    fn get_response(&self, url_str: &String) -> Result<Response> {
+        let mut headers = HeaderMap::new();
+        headers.insert(USER_AGENT, HeaderValue::from_str(self.settings.user_agent.as_str()).unwrap());
+        let headers_argument = &headers;
+        let client = reqwest::blocking::Client::new();
+        let result = client
+            .get(url_str)
+            .headers(headers_argument.to_owned())
+            .send();
+        result
+    }
+
     fn recurse(&self, visited: &Arc<Mutex<Vec<String>>>, part_url: &Url) {
         let new_crawl = RinzlerCrawler {
             target: part_url.to_string(),
@@ -144,5 +159,43 @@ impl RinzlerCrawler {
         };
         thread::sleep(Duration::from_millis(self.settings.rate_limit));
         let _ = new_crawl.crawl(Arc::clone(&visited));
+    }
+
+    fn force_browse(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget, wordlist: Option<Vec<String>>) {
+        if let Ok(base_url) = Url::parse(crawl_target.url.as_str()) {
+            let wl = wordlist.unwrap();
+            wl.par_iter().for_each(|word| {
+                if let Ok(to_visit) = base_url.join(word.as_str()) {
+                    let mut crawl_target = CrawlTarget::from_url(to_visit.clone());
+                    self.send_target_found_message(&mut crawl_target);
+                    let result = self.get_response(&to_visit.to_string());
+                    let response = result.unwrap();
+                    let status_code = response.status();
+                    if self.is_allowed(u16::from(status_code)) {
+                        self.send_target_hit_message(visited, crawl_target.clone(),&response)
+                    }
+                }
+            });
+        }
+    }
+
+    fn is_allowed(&self, code : u16) -> bool {
+        let allowed_status_codes = self.settings.status_include.to_owned();
+        let blocked_status_codes = self.settings.status_exclude.to_owned();
+
+        let inclusions_exist = allowed_status_codes.is_empty() == false;
+        let exclusions_exist = blocked_status_codes.is_empty() == false;
+        let code = &u16::from(code);
+        let mut allow = true;
+
+        if inclusions_exist {
+            allow &= allowed_status_codes.contains(code);
+        }
+
+        if exclusions_exist {
+            allow &= !blocked_status_codes.contains(code);
+        }
+
+        allow
     }
 }
