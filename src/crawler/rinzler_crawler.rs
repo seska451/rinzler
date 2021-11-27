@@ -1,10 +1,10 @@
-use std::sync::{Arc};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 use chrono::Local;
 use regex::Regex;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
 use reqwest::{ Result};
 use url::Url;
 use crate::crawler::crawl_target::CrawlTarget;
@@ -48,13 +48,21 @@ impl RinzlerCrawler {
         }
     }
 
-    pub(crate) fn crawl(&self, visited : Arc<std::sync::Mutex<Vec<String>>>) -> Result<()> {
+    pub(crate) fn crawl(&self, already_visited: Arc<std::sync::Mutex<Vec<String>>>) -> Result<()> {
         let target = &self.target;
-        let url = Url::parse(&target);
+        let url_parse_result = Url::parse(&target);
         let mut crawl_target = CrawlTarget::new();
-        let mut crawl_result = crawl_target.clone();
 
-        let url = match url {
+        let url = match url_parse_result {
+            Ok(u) => {
+                crawl_target.url = u.to_string();
+                let _ = self.console_sender.send(ConsoleMessage {
+                    message_type: ConsoleMessageType::RESULT,
+                    data: Ok(String::default()),
+                    crawl_target: Some(crawl_target.clone()),
+                });
+                u
+            },
             Err(why) => {
                 let _ = self.console_sender.send(ConsoleMessage {
                     message_type: ConsoleMessageType::ABORT,
@@ -63,28 +71,23 @@ impl RinzlerCrawler {
                 });
                 return Ok(());
             }
-            Ok(u) => {
-                crawl_target.url = u.to_string();
-                let _ = self.console_sender.send(ConsoleMessage {
-                    message_type: ConsoleMessageType::RESULT,
-                    data: Ok(String::default()),
-                    crawl_target: Some(crawl_target),
-                });
-                u
-            }
         };
 
+        self.find_new_urls(&already_visited, crawl_target.clone(), url.clone());
+        Ok(())
+    }
+
+    fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, mut crawl_result: CrawlTarget, url: Url) {
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_str(self.settings.user_agent.as_str()).unwrap());
-
-        let url_argument = &url;
         let headers_argument = &headers;
         let client = reqwest::blocking::Client::new();
         if let Ok(res) = client
-            .get(url_argument.to_owned())
+            .get(url.clone())
             .headers(headers_argument.to_owned())
             .send() {
-            visited.lock().unwrap().push(url_argument.to_string());
+
+            visited.lock().unwrap().push(url.clone().to_string());
             crawl_result.url = res.url().to_string();
             crawl_result.status_code = Some(u16::from(res.status()));
             crawl_result.timestamp = Local::now();
