@@ -1,8 +1,7 @@
-use std::{env, thread};
+use std::{env};
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use clap::{Arg, App, ArgMatches};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use threadpool::ThreadPool;
@@ -45,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn inform_console_to_exit(reason: Result<String, String>, command_tx: Sender<ConsoleMessage>) {
-    thread::sleep(Duration::from_secs(1));
+    //thread::sleep(Duration::from_secs(1));
     let _ = command_tx.send(ConsoleMessage {
         message_type: ConsoleMessageType::Finish,
         data: reason,
@@ -71,7 +70,7 @@ fn wait_for_crawlers_to_finish(controller_receivers: &mut Vec<Receiver<Controlle
                 false
             }
         });
-        thread::sleep(Duration::from_millis(100));
+        //thread::sleep(Duration::from_millis(100));
         if !errors.is_empty() {
             break;
         }

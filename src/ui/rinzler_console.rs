@@ -1,10 +1,12 @@
 use std::collections::{HashMap};
-use std::{io};
-use crossbeam::channel::Receiver;
+use std::{io, thread};
+use std::thread::sleep;
+use std::time::Duration;
+use crossbeam::channel::{Receiver};
 use colored::Colorize;
 use console::{Emoji, Term};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use crate::{CrawlTarget, Settings};
+use crate::{CrawlTarget, Settings, unbounded};
 
 static SPIDER_WEB: Emoji = Emoji("🕸️", "|");
 static HEARTS: Emoji = Emoji("💖💖💖", "<3 ");
@@ -61,17 +63,38 @@ impl RinzlerConsole {
         self
     }
 
+    fn spawn_stdin_channel() -> Receiver<String> {
+        let (tx, rx) = unbounded();
+        thread::spawn(move || loop {
+
+            let mut buffer = String::new();
+            io::stdin().read_line(&mut buffer).unwrap();
+            tx.send(buffer).unwrap();
+        });
+        rx
+    }
+
     pub fn render(self) {
         let m = MultiProgress::new();
         let mut ongoing_scans: HashMap<CrawlTarget, ProgressBar> = HashMap::new();
+        let stdin_channel = RinzlerConsole::spawn_stdin_channel();
         loop {
+            if let Ok(key) = stdin_channel.try_recv() {
+                if key == "\n" {
+                    break;
+                }
+            }
+            sleep(Duration::from_millis(50));
             let console_message = self.message_receiver.try_recv();
             if let Ok(command) = console_message {
                 match command.message_type {
                     ConsoleMessageType::NONE => {}
                     ConsoleMessageType::ForceBrowseStart => {
                         let pb = m.add(ProgressBar::new(command.total.unwrap()));
-                        pb.set_style(ProgressStyle::default_bar());
+                        pb.set_style(ProgressStyle::default_bar()
+                            .template("{spinner:.green} {msg:50}\n[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} ({eta}) ")
+                            .with_key("eta", |state| format!("{:.1}s", state.eta().as_secs_f64()))
+                            .progress_chars("#>-"));
                         ongoing_scans.insert(command.crawl_target.unwrap(), pb);
                     },
                     ConsoleMessageType::ForceBrowseProgress => {
@@ -81,7 +104,7 @@ impl RinzlerConsole {
                     ConsoleMessageType::ForceBrowseHit => {
                         let ct = &command.crawl_target.clone();
                         let pb = &ongoing_scans.get(&ct.clone().unwrap()).unwrap();
-                        pb.println(format!("{}", &ct.clone().unwrap()));
+                        pb.println(format!("{}",&ct.clone().unwrap()));
                         pb.inc(1);
                     },
                     ConsoleMessageType::ForceBrowseAttempt => {
@@ -165,7 +188,7 @@ impl RinzlerConsole {
         builder.append(format!("  {}\n", SPIDER_WEB));
         builder.append(format!("  {}    usage: rnz <URL>\n", SPIDER_WEB));
         builder.append(format!("  {}\n", SPIDER_WEB));
-        builder.append(format!("  {}    Press 'q' to quit\n\n", SPIDER_WEB));
+        builder.append(format!("  {}    Press 'enter' to quit\n\n", SPIDER_WEB));
         builder.append(format!("{}\n", settings_desc));
 
         print!("{}", builder.string().unwrap());
