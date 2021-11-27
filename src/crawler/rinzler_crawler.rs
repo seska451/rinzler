@@ -114,7 +114,7 @@ impl RinzlerCrawler {
                                 let part_url = &url.join(u.as_str()).unwrap();
                                 if !visited.lock().unwrap().contains(&part_url.to_string()) {
                                     let target_domain = &part_url.domain().unwrap_or_default().to_string();
-                                    if self.settings.scoped && self.scoped_domains.contains(target_domain) {
+                                    if !self.settings.scoped || (self.settings.scoped && self.scoped_domains.contains(target_domain))  {
                                         self.recurse(&visited, part_url);
                                     }
                                 }
