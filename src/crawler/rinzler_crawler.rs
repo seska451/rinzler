@@ -163,7 +163,6 @@ impl RinzlerCrawler {
             console_sender: self.console_sender.clone(),
             scoped_domains: self.scoped_domains.clone(),
         };
-        thread::sleep(Duration::from_millis(self.settings.rate_limit));
         let _ = new_crawl.crawl(Arc::clone(&visited));
     }
 
