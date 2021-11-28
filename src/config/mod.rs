@@ -1,6 +1,6 @@
+use bitflags::bitflags;
 use std::fmt::{Display, Formatter};
 use tracing::Level;
-use bitflags::bitflags;
 
 bitflags! {
     pub struct Flags: u8 {
@@ -44,7 +44,7 @@ impl Clone for Settings {
             status_include: self.status_include.clone(),
             status_exclude: self.status_exclude.clone(),
             flags: self.flags.clone(),
-            max_threads: 50
+            max_threads: 50,
         }
     }
 }
@@ -53,11 +53,13 @@ impl Display for Settings {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "  Flags:       {:?}", self.flags)?;
         if !self.status_include.is_empty() {
-            let status_inc: Vec<String> = self.status_include.iter().map(|n| n.to_string()).collect();
+            let status_inc: Vec<String> =
+                self.status_include.iter().map(|n| n.to_string()).collect();
             writeln!(f, "  Included status:  {}", status_inc.join(", "))?;
         }
         if !self.status_exclude.is_empty() {
-            let status_ex: Vec<String> = self.status_exclude.iter().map(|n| n.to_string()).collect();
+            let status_ex: Vec<String> =
+                self.status_exclude.iter().map(|n| n.to_string()).collect();
             writeln!(f, "  Excluded status:  {}", status_ex.join(", "))?;
         }
         writeln!(f, "  User-Agent:  {}", self.user_agent)?;
@@ -65,13 +67,16 @@ impl Display for Settings {
         writeln!(f, "  Log Level:   {}", self.verbosity)?;
         writeln!(f, "  Targets:     {}", self.hosts.join(", "))?;
         Ok(match &self.wordlist_filename {
-            Some(wl) => {
-                writeln!(f, "  Wordlist {} with {} words", wl, match &self.wordlist {
+            Some(wl) => writeln!(
+                f,
+                "  Wordlist {} with {} words",
+                wl,
+                match &self.wordlist {
                     Some(w) => w.len(),
-                    None => 0
-                })?
-            },
-            None => write!(f, "")?
+                    None => 0,
+                }
+            )?,
+            None => write!(f, "")?,
         })
     }
 }

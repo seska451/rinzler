@@ -1,25 +1,25 @@
-use std::sync::{Arc, Mutex};
-use crossbeam::channel::{Sender};
-use std::thread;
-use std::time::Duration;
-use chrono::Local;
-use regex::Regex;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
-use reqwest::{ Result};
-use reqwest::blocking::Response;
-use url::{ParseError, Url};
 use crate::crawler::crawl_target::CrawlTarget;
 use crate::{ConsoleMessage, ConsoleMessageType, Settings};
+use chrono::Local;
+use crossbeam::channel::Sender;
 use rayon::prelude::*;
+use regex::Regex;
+use reqwest::blocking::Response;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::Result;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use url::{ParseError, Url};
 
 pub enum ControllerMessageType {
     FINISHED,
-    ERROR
+    ERROR,
 }
 
 pub struct ControllerMessage {
     pub message_type: ControllerMessageType,
-    pub data: String
+    pub data: String,
 }
 
 pub struct RinzlerCrawler {
@@ -27,26 +27,32 @@ pub struct RinzlerCrawler {
     settings: Settings,
     pub controller_sender: Sender<ControllerMessage>,
     pub console_sender: Sender<ConsoleMessage>,
-    scoped_domains: Vec<String>
+    scoped_domains: Vec<String>,
 }
 
 impl RinzlerCrawler {
     pub(crate) fn finish(&self) {
         let _ = self.controller_sender.send(ControllerMessage {
             message_type: ControllerMessageType::FINISHED,
-            data: "".to_string()
+            data: "".to_string(),
         });
     }
 }
 
 impl RinzlerCrawler {
-    pub fn new(target: String, settings : Settings, controller_messages: Sender<ControllerMessage>, console_messages: Sender<ConsoleMessage>, scoped_domains: Vec<String>) -> RinzlerCrawler {
+    pub fn new(
+        target: String,
+        settings: Settings,
+        controller_messages: Sender<ControllerMessage>,
+        console_messages: Sender<ConsoleMessage>,
+        scoped_domains: Vec<String>,
+    ) -> RinzlerCrawler {
         RinzlerCrawler {
             target,
             settings: settings.to_owned(),
             controller_sender: controller_messages,
             console_sender: console_messages,
-            scoped_domains
+            scoped_domains,
         }
     }
 
@@ -59,8 +65,9 @@ impl RinzlerCrawler {
             Ok(u) => {
                 crawl_target.url = u.to_string();
                 self.send_target_found_message(&mut crawl_target);
-            },
-            Err(why) => { //we dont want to continue when bogus urls are supplied
+            }
+            Err(why) => {
+                //we dont want to continue when bogus urls are supplied
                 self.send_abort_program_message(&target, why);
                 return Ok(());
             }
@@ -92,7 +99,6 @@ impl RinzlerCrawler {
     }
 
     fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget) {
-
         let url_str = crawl_target.url.clone();
         let url = Url::parse(url_str.as_str()).unwrap();
         let result = self.get_response(&url_str);
@@ -108,27 +114,36 @@ impl RinzlerCrawler {
             }
 
             if let Ok(body) = res.text() {
-                let url_finder: Regex = Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
-                url_finder.captures_iter(body.as_str())
-                    .for_each(|captures| {
-                        match captures.get(1) {
-                            Some(u) => {
-                                let part_url = &url.join(u.as_str()).unwrap();
-                                if !visited.lock().unwrap().contains(&part_url.to_string()) {
-                                    let target_domain = &part_url.domain().unwrap_or_default().to_string();
-                                    if !self.settings.scoped || (self.settings.scoped && self.scoped_domains.contains(target_domain))  {
-                                        self.recurse(&visited, part_url);
-                                    }
+                let url_finder: Regex =
+                    Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
+                url_finder
+                    .captures_iter(body.as_str())
+                    .for_each(|captures| match captures.get(1) {
+                        Some(u) => {
+                            let part_url = &url.join(u.as_str()).unwrap();
+                            if !visited.lock().unwrap().contains(&part_url.to_string()) {
+                                let target_domain =
+                                    &part_url.domain().unwrap_or_default().to_string();
+                                if !self.settings.scoped
+                                    || (self.settings.scoped
+                                        && self.scoped_domains.contains(target_domain))
+                                {
+                                    self.recurse(&visited, part_url);
                                 }
-                            },
-                            None => ()
+                            }
                         }
+                        None => (),
                     });
             }
         }
     }
 
-    fn send_target_hit_message(&self, visited: &Arc<Mutex<Vec<String>>>, mut crawl_target: CrawlTarget, res: &Response) {
+    fn send_target_hit_message(
+        &self,
+        visited: &Arc<Mutex<Vec<String>>>,
+        mut crawl_target: CrawlTarget,
+        res: &Response,
+    ) {
         visited.lock().unwrap().push(crawl_target.url.clone());
         crawl_target.url = res.url().to_string();
         crawl_target.status_code = Some(u16::from(res.status()));
@@ -145,7 +160,10 @@ impl RinzlerCrawler {
 
     fn get_response(&self, url_str: &String) -> Result<Response> {
         let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_str(self.settings.user_agent.as_str()).unwrap());
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_str(self.settings.user_agent.as_str()).unwrap(),
+        );
         let headers_argument = &headers;
         let client = reqwest::blocking::Client::new();
         let result = client
@@ -166,7 +184,12 @@ impl RinzlerCrawler {
         let _ = new_crawl.crawl(Arc::clone(&visited));
     }
 
-    fn force_browse(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget, wordlist: Option<Vec<String>>) {
+    fn force_browse(
+        &self,
+        visited: &Arc<Mutex<Vec<String>>>,
+        crawl_target: CrawlTarget,
+        wordlist: Option<Vec<String>>,
+    ) {
         if let Ok(base_url) = Url::parse(crawl_target.url.as_str()) {
             let wl = wordlist.unwrap();
             self.send_start_force_browse_message(wl.len(), crawl_target.clone());
@@ -178,7 +201,7 @@ impl RinzlerCrawler {
                     let response = result.unwrap();
                     let status_code = response.status();
                     if self.is_allowed(u16::from(status_code)) {
-                        self.send_force_browse_hit(visited, crawl_target.clone(),&response)
+                        self.send_force_browse_hit(visited, crawl_target.clone(), &response)
                     }
                     self.send_force_browse_progress(crawl_target.clone());
                 }
@@ -186,7 +209,7 @@ impl RinzlerCrawler {
         }
     }
 
-    fn is_allowed(&self, code : u16) -> bool {
+    fn is_allowed(&self, code: u16) -> bool {
         let allowed_status_codes = self.settings.status_include.to_owned();
         let blocked_status_codes = self.settings.status_exclude.to_owned();
 
@@ -211,7 +234,7 @@ impl RinzlerCrawler {
             data: Ok(String::default()),
             original_target: None,
             crawl_target: Some(ct),
-            total: Some(len as u64)
+            total: Some(len as u64),
         });
     }
     fn send_force_browse_progress(&self, ct: CrawlTarget) {
@@ -220,10 +243,15 @@ impl RinzlerCrawler {
             data: Ok(String::default()),
             original_target: None,
             crawl_target: Some(ct),
-            total: None
+            total: None,
         });
     }
-    fn send_force_browse_hit(&self, visited : &Arc<Mutex<Vec<String>>>, mut ct: CrawlTarget, x: &Response) {
+    fn send_force_browse_hit(
+        &self,
+        visited: &Arc<Mutex<Vec<String>>>,
+        mut ct: CrawlTarget,
+        x: &Response,
+    ) {
         visited.lock().unwrap().push(ct.url.to_string());
         ct.url = x.url().to_string();
         ct.status_code = Some(u16::from(x.status()));
@@ -234,7 +262,7 @@ impl RinzlerCrawler {
             data: Ok(String::default()),
             original_target: None,
             crawl_target: Some(ct.clone()),
-            total: None
+            total: None,
         });
     }
     fn send_force_browse_attempt(&self, new_crawl_target: CrawlTarget, crawl_target: CrawlTarget) {

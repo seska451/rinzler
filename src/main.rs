@@ -1,25 +1,25 @@
-use std::{env};
+use crate::ui::rinzler_console::{ConsoleMessage, ConsoleMessageType};
+pub use crate::{
+    config::Flags,
+    crawler::crawl_target::CrawlTarget,
+    crawler::rinzler_crawler::RinzlerCrawler,
+    crawler::rinzler_crawler::{ControllerMessage, ControllerMessageType},
+};
+use clap::{App, Arg, ArgMatches};
+use config::Settings;
+use crossbeam::channel::{unbounded, Receiver, Sender};
+use std::env;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use std::sync::{Arc, Mutex};
-use clap::{Arg, App, ArgMatches};
-use crossbeam::channel::{unbounded, Receiver, Sender};
 use threadpool::ThreadPool;
-use tracing::{info, trace, Level, debug};
+use tracing::{debug, info, trace, Level};
 use tracing_subscriber;
-use url::Url;
-use config::Settings;
 use ui::rinzler_console::RinzlerConsole;
-pub use crate::{
-    config::Flags,
-    crawler::rinzler_crawler::RinzlerCrawler,
-    crawler::crawl_target::CrawlTarget,
-    crawler::rinzler_crawler::{ControllerMessage, ControllerMessageType}
-};
-use crate::ui::rinzler_console::{ConsoleMessage, ConsoleMessageType};
+use url::Url;
 
-mod crawler;
 mod config;
+mod crawler;
 mod ui;
 
 #[tokio::main]
@@ -27,13 +27,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = parse_cmd_line();
     configure_logging(settings.verbosity);
     let (console_sender, message_receiver) = unbounded();
-    let console = RinzlerConsole::new(settings.clone(), message_receiver)?;
     let thread_pool = threadpool::ThreadPool::new(settings.max_threads);
     let mut controller_receivers = vec![];
     let visited = Arc::new(Mutex::new(vec![]));
-    let scoped_domains : Vec<String> = settings.hosts.iter().map(|h| Url::parse(h).unwrap().domain().unwrap().to_string()).collect();
+    let scoped_domains: Vec<String> = settings
+        .hosts
+        .iter()
+        .map(|h| Url::parse(h).unwrap().domain().unwrap().to_string())
+        .collect();
+
+    let console = RinzlerConsole::new(settings.clone(), message_receiver)?;
     start_console(console, &thread_pool, settings.clone());
-    start_crawlers(settings.clone(), console_sender.clone(), &thread_pool, settings.hosts.clone(), &mut controller_receivers, visited, scoped_domains.clone());
+    start_crawlers(
+        settings.clone(),
+        console_sender.clone(),
+        &thread_pool,
+        settings.hosts.clone(),
+        &mut controller_receivers,
+        visited,
+        scoped_domains.clone(),
+    );
+
     let outcome = wait_for_crawlers_to_finish(&mut controller_receivers);
 
     inform_console_to_exit(outcome, console_sender.clone());
@@ -44,7 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn inform_console_to_exit(reason: Result<String, String>, command_tx: Sender<ConsoleMessage>) {
-    //thread::sleep(Duration::from_secs(1));
     let _ = command_tx.send(ConsoleMessage {
         message_type: ConsoleMessageType::Finish,
         data: reason,
@@ -54,7 +67,9 @@ fn inform_console_to_exit(reason: Result<String, String>, command_tx: Sender<Con
     });
 }
 
-fn wait_for_crawlers_to_finish(controller_receivers: &mut Vec<Receiver<ControllerMessage>>) -> Result<String, String> {
+fn wait_for_crawlers_to_finish(
+    controller_receivers: &mut Vec<Receiver<ControllerMessage>>,
+) -> Result<String, String> {
     let mut errors = vec![];
     loop {
         let finished = controller_receivers.iter_mut().all(|r| {
@@ -70,7 +85,7 @@ fn wait_for_crawlers_to_finish(controller_receivers: &mut Vec<Receiver<Controlle
                 false
             }
         });
-        //thread::sleep(Duration::from_millis(100));
+
         if !errors.is_empty() {
             break;
         }
@@ -82,12 +97,20 @@ fn wait_for_crawlers_to_finish(controller_receivers: &mut Vec<Receiver<Controlle
     if errors.is_empty() {
         Ok("Scan Completed".to_string())
     } else {
-        let _ =format!("{}", errors.to_owned().join("\n")).as_str();
+        let _ = format!("{}", errors.to_owned().join("\n")).as_str();
         Err("Scan Failed".to_string())
     }
 }
 
-fn start_crawlers(settings: Settings, console_sender: Sender<ConsoleMessage>, thread_pool: &ThreadPool, hosts: Vec<String>, controller_receivers: &mut Vec<Receiver<ControllerMessage>>, visited:Arc<Mutex<Vec<String>>>, scoped_domains: Vec<String>) {
+fn start_crawlers(
+    settings: Settings,
+    console_sender: Sender<ConsoleMessage>,
+    thread_pool: &ThreadPool,
+    hosts: Vec<String>,
+    controller_receivers: &mut Vec<Receiver<ControllerMessage>>,
+    visited: Arc<Mutex<Vec<String>>>,
+    scoped_domains: Vec<String>,
+) {
     for target in hosts {
         let settings = settings.clone();
         let (controller_sender, controller_receiver) = unbounded();
@@ -95,7 +118,13 @@ fn start_crawlers(settings: Settings, console_sender: Sender<ConsoleMessage>, th
         let v = Arc::clone(&visited);
         let scoped_domains = scoped_domains.clone();
         thread_pool.execute(move || {
-            let crawler = RinzlerCrawler::new(target, settings, controller_sender, console_sender, scoped_domains);
+            let crawler = RinzlerCrawler::new(
+                target,
+                settings,
+                controller_sender,
+                console_sender,
+                scoped_domains,
+            );
             let result = crawler.crawl(v);
             if let Ok(_result) = result {
                 crawler.finish()
@@ -197,17 +226,17 @@ fn parse_cmd_line() -> Settings {
     let mut settings = Settings {
         user_agent: match args.value_of("user-agent") {
             Some(ua) => ua.to_string(),
-            None => env!("CARGO_PKG_VERSION").to_string()
+            None => env!("CARGO_PKG_VERSION").to_string(),
         },
         rate_limit: args.value_of("rate-limit").unwrap().parse::<u64>().unwrap(),
         scoped: args.value_of("scoped").unwrap().parse::<bool>().unwrap(),
         recurse: match args.is_present("wordlist") {
             true => args.is_present("deep"),
-            false => !args.is_present("shallow")
+            false => !args.is_present("shallow"),
         },
         wordlist_filename: match args.value_of("wordlist") {
             Some(wl) => Some(wl.to_string()),
-            None => None
+            None => None,
         },
         wordlist: match args.value_of("wordlist") {
             Some(wl) => {
@@ -221,16 +250,16 @@ fn parse_cmd_line() -> Settings {
                     }
                 }
                 Some(urls)
-            },
-            None => None
+            }
+            None => None,
         },
         status_include: match args.values_of_t::<u16>("status-include") {
             Ok(v) => v,
-            Err(_) => vec![]
+            Err(_) => vec![],
         },
         status_exclude: match args.values_of_t::<u16>("status-exclude") {
             Ok(v) => v,
-            Err(_) => vec![]
+            Err(_) => vec![],
         },
         verbosity: match args.occurrences_of("verbosity") {
             0 => Level::WARN,
@@ -241,7 +270,7 @@ fn parse_cmd_line() -> Settings {
         quiet: args.value_of_t::<bool>("quiet").unwrap(),
         hosts: get_hosts_from_args(args),
         flags: Flags::NONE,
-        max_threads: 50
+        max_threads: 50,
     };
 
     pre_configure(&mut settings);
@@ -277,8 +306,7 @@ fn get_hosts_from_args(args: ArgMatches) -> Vec<String> {
     match args.values_of_lossy("host") {
         Some(hosts) => hosts,
         None => {
-            let single_host =
-                args.value_of("single_host").unwrap().to_string();
+            let single_host = args.value_of("single_host").unwrap().to_string();
             let mut vec: Vec<String> = Vec::new();
             vec.push(single_host);
             vec
@@ -287,8 +315,9 @@ fn get_hosts_from_args(args: ArgMatches) -> Vec<String> {
 }
 
 fn configure_logging(verbosity_level: Level) {
-    tracing_subscriber::fmt().with_max_level(verbosity_level).init();
+    tracing_subscriber::fmt()
+        .with_max_level(verbosity_level)
+        .init();
     info!("Verbosity level set to {}", verbosity_level);
     trace!("configured logging");
 }
-
