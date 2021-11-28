@@ -1,5 +1,6 @@
+use crate::config::RinzlerSettings;
 use crate::crawler::crawl_target::CrawlTarget;
-use crate::{ConsoleMessage, ConsoleMessageType, Settings};
+use crate::ui::rinzler_console::{ConsoleMessage, ConsoleMessageType};
 use chrono::Local;
 use crossbeam::channel::Sender;
 use rayon::prelude::*;
@@ -8,8 +9,6 @@ use reqwest::blocking::Response;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::Result;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 use url::{ParseError, Url};
 
 pub enum ControllerMessageType {
@@ -24,7 +23,7 @@ pub struct ControllerMessage {
 
 pub struct RinzlerCrawler {
     target: String,
-    settings: Settings,
+    settings: RinzlerSettings,
     pub controller_sender: Sender<ControllerMessage>,
     pub console_sender: Sender<ConsoleMessage>,
     scoped_domains: Vec<String>,
@@ -42,7 +41,7 @@ impl RinzlerCrawler {
 impl RinzlerCrawler {
     pub fn new(
         target: String,
-        settings: Settings,
+        settings: RinzlerSettings,
         controller_messages: Sender<ControllerMessage>,
         console_messages: Sender<ConsoleMessage>,
         scoped_domains: Vec<String>,

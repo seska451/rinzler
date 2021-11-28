@@ -1,7 +1,8 @@
-use crate::{unbounded, CrawlTarget, Settings};
+use crate::config::RinzlerSettings;
+use crate::crawler::crawl_target::CrawlTarget;
 use colored::Colorize;
 use console::{Emoji, Term};
-use crossbeam::channel::Receiver;
+use crossbeam::channel::{unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::thread::sleep;
@@ -44,14 +45,14 @@ impl Clone for ConsoleMessage {
 }
 
 pub(crate) struct RinzlerConsole {
-    settings: Settings,
+    settings: RinzlerSettings,
     message_receiver: Receiver<ConsoleMessage>,
     terminal: Term,
 }
 
 impl RinzlerConsole {
     pub fn new(
-        settings: Settings,
+        settings: RinzlerSettings,
         message_receiver: Receiver<ConsoleMessage>,
     ) -> Result<RinzlerConsole, io::Error> {
         Ok(RinzlerConsole {
