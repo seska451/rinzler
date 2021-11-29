@@ -39,31 +39,31 @@ make install
 ```bash
 ## get help
 ```bash
-rz --help
+rnz --help
 ```
 ## crawling a single host
 ```bash
-rz https://crawler-test.com 
+rnz https://crawler-test.com 
 ```
 ## crawling multiple hosts
 ```bash
-rz --host https://crawler-test.com --host https://seska.io 
+rnz --host https://crawler-test.com --host https://seska.io 
 ```
 ## rate limiting requests (50ms per request)
 ```bash
-rz --host https://crawler-test.com --rate-limit 50
+rnz --host https://crawler-test.com --rate-limit 50
 ```
 ## run an unscoped crawl
 ```bash
-rz --host https://crawler-test.com --scoped=false 
+rnz --host https://crawler-test.com --scoped=false 
 ```
 ## customize the UA header
 ```bash
-rz --host https://crawler-test.com --user-agent="Mozilla/5.0 (Linux; Android 8.0.0; SM-G960F Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.84 Mobile Safari/537.36" 
+rnz --host https://crawler-test.com --user-agent="Mozilla/5.0 (Linux; Android 8.0.0; SM-G960F Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.84 Mobile Safari/537.36" 
 ```
 ## suppress the banner on start
 ```bash
-rz --host https://crawler-test.com --quiet 
+rnz --host https://crawler-test.com --quiet 
 ```
 # All the options
 USAGE:
