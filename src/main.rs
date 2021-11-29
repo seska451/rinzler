@@ -2,6 +2,7 @@ use app::RinzlerApplication;
 use config::parse_cmd_line;
 
 mod app;
+mod client;
 mod config;
 mod crawler;
 mod ui;

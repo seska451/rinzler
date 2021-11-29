@@ -3,7 +3,7 @@ use clap::{App, Arg, ArgMatches};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use tracing::{debug, info, trace, Level};
+use tracing::{debug, error, info, trace, Level};
 
 bitflags! {
     pub struct Flags: u8 {
@@ -47,7 +47,7 @@ impl Clone for RinzlerSettings {
             status_include: self.status_include.clone(),
             status_exclude: self.status_exclude.clone(),
             flags: self.flags.clone(),
-            max_threads: 50,
+            max_threads: self.max_threads.clone(),
         }
     }
 }
@@ -69,6 +69,7 @@ impl Display for RinzlerSettings {
         writeln!(f, "  Throttle:    {}ms", self.rate_limit)?;
         writeln!(f, "  Log Level:   {}", self.verbosity)?;
         writeln!(f, "  Targets:     {}", self.hosts.join(", "))?;
+        writeln!(f, "  Threads:     {}", self.max_threads)?;
         Ok(match &self.wordlist_filename {
             Some(wl) => writeln!(
                 f,
@@ -162,6 +163,14 @@ pub(crate) fn parse_cmd_line() -> RinzlerSettings {
             .takes_value(true)
             .min_values(1)
             .about("Set the status codes you're not interested in."))
+        .arg(Arg::new("threads")
+            .short('t')
+            .long("threads")
+            .takes_value(true)
+            .required(false)
+            .env("RINZLER_THREADS")
+            .default_value("50")
+            .about("Set the maximum number of threads to build the thread pool that rinzler uses when processing targets."))
         .get_matches().to_owned();
 
     let mut settings = RinzlerSettings {
@@ -209,9 +218,22 @@ pub(crate) fn parse_cmd_line() -> RinzlerSettings {
             _ => Level::TRACE,
         },
         quiet: args.value_of_t::<bool>("quiet").unwrap(),
+        max_threads: {
+            let t = args.value_of_t::<usize>("threads").unwrap();
+            if t > 0 && t <= 1000 {
+                t
+            } else {
+                if t <= 0 {
+                    error!("Need at least one thread to work with, plzkthxbai!");
+                }
+                if t > 1000 {
+                    error!("Things get weird over 1000 threads!");
+                }
+                50
+            }
+        },
         hosts: get_hosts_from_args(args),
         flags: Flags::NONE,
-        max_threads: 50,
     };
 
     pre_configure(&mut settings);

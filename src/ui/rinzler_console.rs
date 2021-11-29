@@ -5,8 +5,6 @@ use console::{Emoji, Term};
 use crossbeam::channel::{unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::HashMap;
-use std::thread::sleep;
-use std::time::Duration;
 use std::{io, thread};
 
 static SPIDER_WEB: Emoji = Emoji("🕸️", "|");

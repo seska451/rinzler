@@ -1,3 +1,4 @@
+use crate::client::RinzlerClient;
 use crate::config::RinzlerSettings;
 use crate::crawler::rinzler_crawler::{ControllerMessage, ControllerMessageType, RinzlerCrawler};
 use crate::ui::rinzler_console::{ConsoleMessage, ConsoleMessageType, RinzlerConsole};
@@ -16,7 +17,7 @@ impl RinzlerApplication {
     pub fn from_settings(settings: RinzlerSettings) -> RinzlerApplication {
         ThreadPoolBuilder::new()
             .thread_name(|i: usize| format!("rinzler-{}", i))
-            .num_threads(45)
+            .num_threads(settings.max_threads)
             .build_global()
             .unwrap();
 
@@ -117,12 +118,14 @@ impl RinzlerApplication {
             let v = Arc::clone(&visited);
             let scoped_domains = scoped_domains.clone();
             thread_pool.execute(move || {
+                let rc = RinzlerClient::new(&settings.clone());
                 let crawler = RinzlerCrawler::new(
                     target,
                     settings,
                     controller_sender,
                     console_sender,
                     scoped_domains,
+                    rc,
                 );
                 let result = crawler.crawl(v);
                 if let Ok(_result) = result {

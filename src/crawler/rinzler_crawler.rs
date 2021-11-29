@@ -1,3 +1,4 @@
+use crate::client::{RequestOptions, RinzlerClient};
 use crate::config::{Flags, RinzlerSettings};
 use crate::crawler::crawl_target::CrawlTarget;
 use crate::ui::rinzler_console::{ConsoleMessage, ConsoleMessageType};
@@ -5,26 +6,10 @@ use chrono::Local;
 use crossbeam::channel::Sender;
 use rayon::prelude::*;
 use regex::Regex;
-use reqwest::blocking::{Client, Response};
-use reqwest::header::{HeaderMap, HeaderValue, RANGE};
-use reqwest::{Method, Result};
+use reqwest::blocking::Response;
+use reqwest::Result;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tracing::{debug, info};
 use url::{ParseError, Url};
-
-struct RequestOptions {
-    truncate: bool,
-}
-impl RequestOptions {
-    const fn default() -> Option<RequestOptions> {
-        Some(RequestOptions { truncate: false })
-    }
-
-    const fn with_partial_get() -> Option<RequestOptions> {
-        Some(RequestOptions { truncate: true })
-    }
-}
 
 pub enum ControllerMessageType {
     FINISHED,
@@ -42,6 +27,7 @@ pub struct RinzlerCrawler {
     pub controller_sender: Sender<ControllerMessage>,
     pub console_sender: Sender<ConsoleMessage>,
     scoped_domains: Vec<String>,
+    pub client: RinzlerClient,
 }
 
 impl RinzlerCrawler {
@@ -60,6 +46,7 @@ impl RinzlerCrawler {
         controller_messages: Sender<ControllerMessage>,
         console_messages: Sender<ConsoleMessage>,
         scoped_domains: Vec<String>,
+        client: RinzlerClient,
     ) -> RinzlerCrawler {
         RinzlerCrawler {
             target,
@@ -67,6 +54,7 @@ impl RinzlerCrawler {
             controller_sender: controller_messages,
             console_sender: console_messages,
             scoped_domains,
+            client,
         }
     }
 
@@ -118,11 +106,11 @@ impl RinzlerCrawler {
         });
     }
 
-    fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, mut crawl_target: CrawlTarget) {
+    fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget) {
         let mut ct = crawl_target;
 
         let url = Url::parse(&ct.url).unwrap();
-        let result = self.send_head(&mut ct, RequestOptions::default());
+        let result = self.client.send_head(&mut ct, RequestOptions::default());
 
         if let Ok(res) = result {
             self.send_target_hit_message(visited, &mut ct, &res);
@@ -133,7 +121,10 @@ impl RinzlerCrawler {
                 return;
             }
 
-            match self.send_get(&mut ct, RequestOptions::with_partial_get()) {
+            match self
+                .client
+                .send_get(&mut ct, RequestOptions::with_partial_get())
+            {
                 Ok(res) => {
                     if let Ok(body) = res.text() {
                         let url_finder: Regex =
@@ -183,52 +174,6 @@ impl RinzlerCrawler {
         });
     }
 
-    fn send_get(&self, ct: &mut CrawlTarget, opt: Option<RequestOptions>) -> Result<Response> {
-        let client = self.get_http_client(opt);
-        ct.method = Method::GET.to_string();
-
-        let result = client.get(&ct.url).send();
-        result
-    }
-
-    fn send_head(&self, ct: &mut CrawlTarget, opt: Option<RequestOptions>) -> Result<Response> {
-        let client = self.get_http_client(opt);
-        ct.method = Method::HEAD.to_string();
-        let result = client.head(&ct.url).send();
-        result
-    }
-
-    fn send_options(
-        &self,
-        crawl_target: &mut CrawlTarget,
-        truncate: Option<RequestOptions>,
-    ) -> Result<Response> {
-        let client = self.get_http_client(truncate);
-        crawl_target.method = Method::OPTIONS.to_string();
-
-        let result = client.request(Method::OPTIONS, &crawl_target.url).send();
-        result
-    }
-
-    fn get_http_client(&self, truncate: Option<RequestOptions>) -> Client {
-        let mut headers = HeaderMap::new();
-        if let Some(opt) = truncate {
-            if opt.truncate {
-                headers.insert(RANGE, HeaderValue::from_str("-100").unwrap());
-            }
-        }
-
-        let client = reqwest::blocking::ClientBuilder::new()
-            .user_agent(self.settings.user_agent.as_str())
-            .danger_accept_invalid_certs(true)
-            .default_headers(headers)
-            .timeout(Duration::from_millis(300))
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()
-            .unwrap();
-        client
-    }
-
     fn recurse(&self, visited: &Arc<Mutex<Vec<String>>>, part_url: &Url) {
         let new_crawl = RinzlerCrawler {
             target: part_url.to_string(),
@@ -236,6 +181,7 @@ impl RinzlerCrawler {
             controller_sender: self.controller_sender.clone(),
             console_sender: self.console_sender.clone(),
             scoped_domains: self.scoped_domains.clone(),
+            client: self.client.clone(),
         };
         let _ = new_crawl.crawl(Arc::clone(&visited));
     }
@@ -244,7 +190,7 @@ impl RinzlerCrawler {
         &self,
         visited: &Arc<Mutex<Vec<String>>>,
         mut crawl_target: CrawlTarget,
-        mut wordlist: Vec<String>,
+        wordlist: Vec<String>,
     ) {
         crawl_target.method = "HEAD".to_string();
         if let Ok(base_url) = Url::parse(crawl_target.url.as_str()) {
@@ -272,11 +218,13 @@ impl RinzlerCrawler {
 
     fn send_head_or_get(&self, crawl_target: &mut CrawlTarget) -> Result<Response> {
         let mut ct = crawl_target;
-        let result = self.send_head(&mut ct, RequestOptions::default());
+        let result = self.client.send_head(&mut ct, RequestOptions::default());
 
         match result {
             Ok(r) => match r.status().as_u16() {
-                500..=599 => self.send_get(&mut ct, RequestOptions::with_partial_get()),
+                500..=599 => self
+                    .client
+                    .send_get(&mut ct, RequestOptions::with_partial_get()),
                 _ => Ok(r),
             },
             Err(_) => result,
