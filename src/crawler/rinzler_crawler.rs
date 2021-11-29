@@ -6,9 +6,11 @@ use crossbeam::channel::Sender;
 use rayon::prelude::*;
 use regex::Regex;
 use reqwest::blocking::Response;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
+use reqwest::redirect::Policy;
 use reqwest::Result;
 use std::sync::{Arc, Mutex};
+use tracing::error;
 use url::{ParseError, Url};
 
 pub enum ControllerMessageType {
@@ -100,7 +102,7 @@ impl RinzlerCrawler {
     fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget) {
         let url_str = crawl_target.url.clone();
         let url = Url::parse(url_str.as_str()).unwrap();
-        let result = self.get_response(&url_str);
+        let result = self.get_response(&url_str, false);
 
         if let Ok(res) = result {
             self.send_target_hit_message(visited, crawl_target, &res);
@@ -157,16 +159,23 @@ impl RinzlerCrawler {
         });
     }
 
-    fn get_response(&self, url_str: &String) -> Result<Response> {
+    fn get_response(&self, url_str: &String, should_truncate: bool) -> Result<Response> {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            USER_AGENT,
-            HeaderValue::from_str(self.settings.user_agent.as_str()).unwrap(),
-        );
-        let headers_argument = &headers;
+        if should_truncate {
+            headers.insert(RANGE, HeaderValue::from_str("-100").unwrap());
+        }
+
+        reqwest::blocking::ClientBuilder::new()
+            .user_agent(self.settings.user_agent.as_str())
+            .danger_accept_invalid_certs(true)
+            .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .unwrap();
+
         let client = reqwest::blocking::Client::new();
         let result = client
-            .get(url_str)
+            .head(url_str)
             .headers(headers_argument.to_owned())
             .send();
         result
@@ -196,7 +205,7 @@ impl RinzlerCrawler {
                 if let Ok(to_visit) = base_url.join(word.as_str()) {
                     let new_crawl_target = CrawlTarget::from_url(to_visit.clone());
                     self.send_force_browse_attempt(new_crawl_target.clone(), crawl_target.clone());
-                    let result = self.get_response(&to_visit.to_string());
+                    let result = self.get_response(&to_visit.to_string(), true);
                     let response = result.unwrap();
                     let status_code = response.status();
                     if self.is_allowed(u16::from(status_code)) {
