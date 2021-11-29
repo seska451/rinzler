@@ -9,6 +9,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
 use reqwest::{Method, Result};
 use std::sync::{Arc, Mutex};
+use tracing::{debug, info};
 use url::{ParseError, Url};
 
 struct RequestOptions {
@@ -85,8 +86,10 @@ impl RinzlerCrawler {
             }
         };
         let flags = &self.settings.flags;
-        if flags.contains(Flags::BRUTE) {
-            self.force_browse(&already_visited, crawl_target.clone(), wordlist.to_owned());
+        if let Some(wordlist) = wordlist {
+            if flags.contains(Flags::BRUTE) {
+                self.force_browse(&already_visited, crawl_target.clone(), wordlist.to_owned());
+            }
         }
         if flags.contains(Flags::CRAWL) {
             self.find_new_urls(&already_visited, crawl_target.clone());
@@ -117,7 +120,8 @@ impl RinzlerCrawler {
     fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget) {
         let url_str = crawl_target.url.clone();
         let url = Url::parse(url_str.as_str()).unwrap();
-        let result = self.send_get(&url_str, RequestOptions::default());
+
+        let result = self.send_head(&url_str, RequestOptions::default());
 
         if let Ok(res) = result {
             self.send_target_hit_message(visited, crawl_target, &res);
@@ -125,31 +129,34 @@ impl RinzlerCrawler {
             let content_type = res.headers().get(reqwest::header::CONTENT_TYPE).unwrap();
             let content_type = content_type.to_str().unwrap_or_default();
             if !content_type.contains("text/") {
-                //skip any content that we cant use regex over
                 return;
             }
-
-            if let Ok(body) = res.text() {
-                let url_finder: Regex =
-                    Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
-                url_finder
-                    .captures_iter(body.as_str())
-                    .for_each(|captures| match captures.get(1) {
-                        Some(u) => {
-                            let part_url = &url.join(u.as_str()).unwrap();
-                            if !visited.lock().unwrap().contains(&part_url.to_string()) {
-                                let target_domain =
-                                    &part_url.domain().unwrap_or_default().to_string();
-                                if !self.settings.scoped
-                                    || (self.settings.scoped
-                                        && self.scoped_domains.contains(target_domain))
-                                {
-                                    self.recurse(&visited, part_url);
+            match self.send_get(&url_str, RequestOptions::with_partial_get()) {
+                Ok(res) => {
+                    if let Ok(body) = res.text() {
+                        let url_finder: Regex =
+                            Regex::new("(?:src=[\"']|href=[\"'])(/{0,2}[^\"',<>]*)").unwrap();
+                        url_finder
+                            .captures_iter(body.as_str())
+                            .for_each(|captures| match captures.get(1) {
+                                Some(u) => {
+                                    let part_url = &url.join(u.as_str()).unwrap();
+                                    if !visited.lock().unwrap().contains(&part_url.to_string()) {
+                                        let target_domain =
+                                            &part_url.domain().unwrap_or_default().to_string();
+                                        if !self.settings.scoped
+                                            || (self.settings.scoped
+                                                && self.scoped_domains.contains(target_domain))
+                                        {
+                                            self.recurse(&visited, part_url);
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                        None => (),
-                    });
+                                None => (),
+                            });
+                    }
+                }
+                Err(_) => {}
             }
         }
     }
@@ -177,14 +184,14 @@ impl RinzlerCrawler {
     fn send_get(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
         let client = self.get_http_client(truncate);
 
-        let result = client.head(url_str).send();
+        let result = client.get(url_str).send();
         result
     }
 
     fn send_head(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
         let client = self.get_http_client(truncate);
 
-        let result = client.get(url_str).send();
+        let result = client.head(url_str).send();
         result
     }
 
@@ -228,25 +235,42 @@ impl RinzlerCrawler {
         &self,
         visited: &Arc<Mutex<Vec<String>>>,
         crawl_target: CrawlTarget,
-        wordlist: Option<Vec<String>>,
+        mut wordlist: Vec<String>,
     ) {
         if let Ok(base_url) = Url::parse(crawl_target.url.as_str()) {
-            let wl = wordlist.unwrap();
-            self.send_start_force_browse_message(wl.len(), crawl_target.clone());
-            wl.par_iter().for_each(|word| {
+            self.send_start_force_browse_message(wordlist.len(), crawl_target.clone());
+            wordlist.par_iter().for_each(|word| {
                 if let Ok(to_visit) = base_url.join(word.as_str()) {
                     let new_crawl_target = CrawlTarget::from_url(to_visit.clone());
                     self.send_force_browse_attempt(new_crawl_target.clone(), crawl_target.clone());
-                    let result =
-                        self.send_get(&to_visit.to_string(), RequestOptions::with_partial_get());
-                    let response = result.unwrap();
-                    let status_code = response.status();
-                    if self.is_allowed(u16::from(status_code)) {
-                        self.send_force_browse_hit(visited, crawl_target.clone(), &response)
+                    let result = self.send_head_or_get(&to_visit);
+
+                    match result {
+                        Ok(response) => {
+                            let status_code = response.status();
+                            if self.is_allowed(u16::from(status_code)) {
+                                self.send_force_browse_hit(visited, crawl_target.clone(), &response)
+                            }
+                        }
+                        Err(_) => { /* probably nothing to do here */ }
                     }
                     self.send_force_browse_progress(crawl_target.clone());
                 }
             });
+        }
+    }
+
+    fn send_head_or_get(&self, to_visit: &Url) -> Result<Response> {
+        let result = self.send_head(&to_visit.to_string(), RequestOptions::default());
+
+        match result {
+            Ok(r) => match r.status().as_u16() {
+                500..=599 => {
+                    self.send_get(&to_visit.to_string(), RequestOptions::with_partial_get())
+                }
+                _ => Ok(r),
+            },
+            Err(_) => result,
         }
     }
 
@@ -291,11 +315,11 @@ impl RinzlerCrawler {
         &self,
         visited: &Arc<Mutex<Vec<String>>>,
         mut ct: CrawlTarget,
-        x: &Response,
+        response: &Response,
     ) {
         visited.lock().unwrap().push(ct.url.to_string());
-        ct.url = x.url().to_string();
-        ct.status_code = Some(u16::from(x.status()));
+        ct.url = response.url().to_string();
+        ct.status_code = Some(u16::from(response.status()));
         ct.timestamp = Local::now();
 
         let _ = self.console_sender.send(ConsoleMessage {

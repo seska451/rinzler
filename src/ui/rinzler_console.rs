@@ -87,7 +87,6 @@ impl RinzlerConsole {
                     break;
                 }
             }
-            sleep(Duration::from_millis(50));
             let console_message = self.message_receiver.try_recv();
             if let Ok(command) = console_message {
                 match command.message_type {
