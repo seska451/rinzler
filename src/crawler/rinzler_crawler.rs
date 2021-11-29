@@ -1,17 +1,28 @@
-use crate::config::RinzlerSettings;
+use crate::config::{Flags, RinzlerSettings};
 use crate::crawler::crawl_target::CrawlTarget;
 use crate::ui::rinzler_console::{ConsoleMessage, ConsoleMessageType};
 use chrono::Local;
 use crossbeam::channel::Sender;
 use rayon::prelude::*;
 use regex::Regex;
-use reqwest::blocking::Response;
-use reqwest::header::{HeaderMap, HeaderValue, RANGE, USER_AGENT};
-use reqwest::redirect::Policy;
-use reqwest::Result;
+use reqwest::blocking::{Client, Response};
+use reqwest::header::{HeaderMap, HeaderValue, RANGE};
+use reqwest::{Method, Result};
 use std::sync::{Arc, Mutex};
-use tracing::error;
 use url::{ParseError, Url};
+
+struct RequestOptions {
+    truncate: bool,
+}
+impl RequestOptions {
+    const fn default() -> Option<RequestOptions> {
+        Some(RequestOptions { truncate: false })
+    }
+
+    const fn with_partial_get() -> Option<RequestOptions> {
+        Some(RequestOptions { truncate: true })
+    }
+}
 
 pub enum ControllerMessageType {
     FINISHED,
@@ -73,9 +84,13 @@ impl RinzlerCrawler {
                 return Ok(());
             }
         };
-
-        self.force_browse(&already_visited, crawl_target.clone(), wordlist.to_owned());
-        self.find_new_urls(&already_visited, crawl_target.clone());
+        let flags = &self.settings.flags;
+        if flags.contains(Flags::BRUTE) {
+            self.force_browse(&already_visited, crawl_target.clone(), wordlist.to_owned());
+        }
+        if flags.contains(Flags::CRAWL) {
+            self.find_new_urls(&already_visited, crawl_target.clone());
+        }
         Ok(())
     }
 
@@ -102,7 +117,7 @@ impl RinzlerCrawler {
     fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget) {
         let url_str = crawl_target.url.clone();
         let url = Url::parse(url_str.as_str()).unwrap();
-        let result = self.get_response(&url_str, false);
+        let result = self.send_get(&url_str, RequestOptions::default());
 
         if let Ok(res) = result {
             self.send_target_hit_message(visited, crawl_target, &res);
@@ -159,26 +174,43 @@ impl RinzlerCrawler {
         });
     }
 
-    fn get_response(&self, url_str: &String, should_truncate: bool) -> Result<Response> {
+    fn send_get(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
+        let client = self.get_http_client(truncate);
+
+        let result = client.head(url_str).send();
+        result
+    }
+
+    fn send_head(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
+        let client = self.get_http_client(truncate);
+
+        let result = client.get(url_str).send();
+        result
+    }
+
+    fn send_options(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
+        let client = self.get_http_client(truncate);
+
+        let result = client.request(Method::OPTIONS, url_str).send();
+        result
+    }
+
+    fn get_http_client(&self, truncate: Option<RequestOptions>) -> Client {
         let mut headers = HeaderMap::new();
-        if should_truncate {
-            headers.insert(RANGE, HeaderValue::from_str("-100").unwrap());
+        if let Some(opt) = truncate {
+            if opt.truncate {
+                headers.insert(RANGE, HeaderValue::from_str("-100").unwrap());
+            }
         }
 
-        reqwest::blocking::ClientBuilder::new()
+        let client = reqwest::blocking::ClientBuilder::new()
             .user_agent(self.settings.user_agent.as_str())
             .danger_accept_invalid_certs(true)
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .unwrap();
-
-        let client = reqwest::blocking::Client::new();
-        let result = client
-            .head(url_str)
-            .headers(headers_argument.to_owned())
-            .send();
-        result
+        client
     }
 
     fn recurse(&self, visited: &Arc<Mutex<Vec<String>>>, part_url: &Url) {
@@ -205,7 +237,8 @@ impl RinzlerCrawler {
                 if let Ok(to_visit) = base_url.join(word.as_str()) {
                     let new_crawl_target = CrawlTarget::from_url(to_visit.clone());
                     self.send_force_browse_attempt(new_crawl_target.clone(), crawl_target.clone());
-                    let result = self.get_response(&to_visit.to_string(), true);
+                    let result =
+                        self.send_get(&to_visit.to_string(), RequestOptions::with_partial_get());
                     let response = result.unwrap();
                     let status_code = response.status();
                     if self.is_allowed(u16::from(status_code)) {
