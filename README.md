@@ -8,7 +8,6 @@
 🙌       a fast webcrawler        🙌
 🙌       from seska with ♡♡♡      🙌
 ```
-[![asciicast](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A.svg)](https://asciinema.org/a/8lXG4M8CFOw4LJQvHcHZ0Xz6A)
 # Features
 - Webcrawler
 - Fuzzer
@@ -20,6 +19,10 @@
 
 ## Planned
 You can see what we're planning for v1.0 here https://github.com/seska451/rinzler/milestone/1
+
+# Rinzler in action
+## multi-threaded forced browsing
+[![asciicast](https://asciinema.org/a/v4TnGvjh3Jp8qgr7nUR78hUZl.svg)](https://asciinema.org/a/v4TnGvjh3Jp8qgr7nUR78hUZl)
 
 # Installation
 
@@ -34,28 +37,6 @@ make install
 
 # Usage by example
 ```bash
-USAGE:
-    rz [OPTIONS] <HOST URL>
-
-ARGS:
-    <HOST URL>    The host URL to scan
-
-OPTIONS:
-    -h, --host <HOST URL>            Set the initial URL to start crawling. Can be set multiple
-                                     times to crawl several sites at once. [env: RINZLER_HOSTS=]
-        --help                       Print help information
-    -q, --quiet                      When set, this flag suppresses extraneous output like the
-                                     version banner.
-    -r, --rate-limit <rate-limit>    Set the number of milliseconds to wait between each request.
-                                     [env: RINZLER_RATELIMIT=] [default: 0]
-    -s, --scoped <scoped>            Prevents rinzler from searching beyond the original domains
-                                     specified. Defaults to true. [default: true]
-    -u, --user-agent <user-agent>    Set the user-agent header. Defaults to '0.0.1-alpha' [env:
-                                     RINZLER_UA=] [default: "rinzler v0.0.1-alpha"]
-    -v                               Sets the level of output verbosity. Set multiple times 
-    -V, --version                    Print version information
-
-```
 ## get help
 ```bash
 rz --help
@@ -84,3 +65,62 @@ rz --host https://crawler-test.com --user-agent="Mozilla/5.0 (Linux; Android 8.0
 ```bash
 rz --host https://crawler-test.com --quiet 
 ```
+# All the options
+USAGE:
+    rnz [OPTIONS] <HOST URL>
+
+ARGS:
+    <HOST URL>    The host URL to scan
+
+OPTIONS:
+    -D, --deep
+            Indicates use of a deep (recursive) scan. This is done by default, unless fuzzing or
+            forced browsing is used.
+
+    -e, --status-exclude <status-exclude>...
+            Set the status codes you're not interested in.
+
+    -h, --host <HOST URL>
+            Set the initial URL to start crawling. Can be set multiple times to crawl several sites
+            at once. [env: RINZLER_HOSTS=]
+
+        --help
+            Print help information
+
+    -i, --status-include <status-include>...
+            Set the status codes you're interested in.
+
+    -q, --quiet <quiet>
+            When set, this flag suppresses extraneous output like the version banner. [default:
+            false]
+
+    -r, --rate-limit <rate-limit>
+            Set the number of milliseconds to wait between each request. [env: RINZLER_RATE_LIMIT=]
+            [default: 0]
+
+    -s, --scoped <scoped>
+            Prevents rinzler from searching beyond the original domains specified. Defaults to true.
+            [default: true]
+
+    -S, --shallow
+            Indicates use of a shallow (non-recursive) scan. By default a deep crawl (recursive) is
+            performed, unless fuzzing or forced browsing is used.
+
+    -t, --threads <threads>
+            Set the maximum number of threads to build the thread pool that rinzler uses when
+            processing targets. [env: RINZLER_THREADS=] [default: 50]
+
+    -u, --user-agent <user-agent>
+            Set the user-agent header. Defaults to '0.0.2-alpha' [env: RINZLER_UA=] [default:
+            "rinzler v0.0.2-alpha"]
+
+    -v
+            Sets the level of output verbosity. Set multiple times
+
+    -V, --version
+            Print version information
+
+    -w, --wordlist <wordlist>
+            Supply a wordlist to perform forced browsing [env: RINZLER_WORDLIST=]
+```
+
