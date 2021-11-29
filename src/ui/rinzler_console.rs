@@ -21,7 +21,7 @@ pub enum ConsoleMessageType {
     ForceBrowseAttempt,
     Finish,
     Abort,
-    Result,
+    CrawlResult,
     NONE,
 }
 
@@ -134,7 +134,7 @@ impl RinzlerConsole {
                         };
                         break;
                     }
-                    ConsoleMessageType::Result => {
+                    ConsoleMessageType::CrawlResult => {
                         let _ = if !self.settings.quiet {
                             if let Some(crawl_tgt) = command.crawl_target {
                                 if HashMap::contains_key(&ongoing_scans, &crawl_tgt) {

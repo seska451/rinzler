@@ -9,6 +9,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
 use reqwest::{Method, Result};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tracing::{debug, info};
 use url::{ParseError, Url};
 
@@ -109,7 +110,7 @@ impl RinzlerCrawler {
 
     fn send_target_found_message(&self, crawl_target: &mut CrawlTarget) {
         let _ = self.console_sender.send(ConsoleMessage {
-            message_type: ConsoleMessageType::Result,
+            message_type: ConsoleMessageType::CrawlResult,
             data: Ok(String::default()),
             original_target: None,
             crawl_target: Some(crawl_target.clone()),
@@ -117,21 +118,22 @@ impl RinzlerCrawler {
         });
     }
 
-    fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, crawl_target: CrawlTarget) {
-        let url_str = crawl_target.url.clone();
-        let url = Url::parse(url_str.as_str()).unwrap();
+    fn find_new_urls(&self, visited: &Arc<Mutex<Vec<String>>>, mut crawl_target: CrawlTarget) {
+        let mut ct = crawl_target;
 
-        let result = self.send_head(&url_str, RequestOptions::default());
+        let url = Url::parse(&ct.url).unwrap();
+        let result = self.send_head(&mut ct, RequestOptions::default());
 
         if let Ok(res) = result {
-            self.send_target_hit_message(visited, crawl_target, &res);
+            self.send_target_hit_message(visited, &mut ct, &res);
 
             let content_type = res.headers().get(reqwest::header::CONTENT_TYPE).unwrap();
             let content_type = content_type.to_str().unwrap_or_default();
             if !content_type.contains("text/") {
                 return;
             }
-            match self.send_get(&url_str, RequestOptions::with_partial_get()) {
+
+            match self.send_get(&mut ct, RequestOptions::with_partial_get()) {
                 Ok(res) => {
                     if let Ok(body) = res.text() {
                         let url_finder: Regex =
@@ -164,41 +166,47 @@ impl RinzlerCrawler {
     fn send_target_hit_message(
         &self,
         visited: &Arc<Mutex<Vec<String>>>,
-        mut crawl_target: CrawlTarget,
+        ct: &mut CrawlTarget,
         res: &Response,
     ) {
-        visited.lock().unwrap().push(crawl_target.url.clone());
-        crawl_target.url = res.url().to_string();
-        crawl_target.status_code = Some(u16::from(res.status()));
-        crawl_target.timestamp = Local::now();
+        visited.lock().unwrap().push(ct.url.clone());
+        ct.url = res.url().to_string();
+        ct.status_code = Some(u16::from(res.status()));
+        ct.timestamp = Local::now();
 
         let _ = self.console_sender.send(ConsoleMessage {
-            message_type: ConsoleMessageType::Result,
+            message_type: ConsoleMessageType::CrawlResult,
             data: Ok(String::default()),
             original_target: None,
-            crawl_target: Some(crawl_target.clone()),
+            crawl_target: Some(ct.clone()),
             total: None,
         });
     }
 
-    fn send_get(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
-        let client = self.get_http_client(truncate);
+    fn send_get(&self, ct: &mut CrawlTarget, opt: Option<RequestOptions>) -> Result<Response> {
+        let client = self.get_http_client(opt);
+        ct.method = Method::GET.to_string();
 
-        let result = client.get(url_str).send();
+        let result = client.get(&ct.url).send();
         result
     }
 
-    fn send_head(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
-        let client = self.get_http_client(truncate);
-
-        let result = client.head(url_str).send();
+    fn send_head(&self, ct: &mut CrawlTarget, opt: Option<RequestOptions>) -> Result<Response> {
+        let client = self.get_http_client(opt);
+        ct.method = Method::HEAD.to_string();
+        let result = client.head(&ct.url).send();
         result
     }
 
-    fn send_options(&self, url_str: &String, truncate: Option<RequestOptions>) -> Result<Response> {
+    fn send_options(
+        &self,
+        crawl_target: &mut CrawlTarget,
+        truncate: Option<RequestOptions>,
+    ) -> Result<Response> {
         let client = self.get_http_client(truncate);
+        crawl_target.method = Method::OPTIONS.to_string();
 
-        let result = client.request(Method::OPTIONS, url_str).send();
+        let result = client.request(Method::OPTIONS, &crawl_target.url).send();
         result
     }
 
@@ -214,6 +222,7 @@ impl RinzlerCrawler {
             .user_agent(self.settings.user_agent.as_str())
             .danger_accept_invalid_certs(true)
             .default_headers(headers)
+            .timeout(Duration::from_millis(300))
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .unwrap();
@@ -234,16 +243,17 @@ impl RinzlerCrawler {
     fn force_browse(
         &self,
         visited: &Arc<Mutex<Vec<String>>>,
-        crawl_target: CrawlTarget,
+        mut crawl_target: CrawlTarget,
         mut wordlist: Vec<String>,
     ) {
+        crawl_target.method = "HEAD".to_string();
         if let Ok(base_url) = Url::parse(crawl_target.url.as_str()) {
             self.send_start_force_browse_message(wordlist.len(), crawl_target.clone());
             wordlist.par_iter().for_each(|word| {
                 if let Ok(to_visit) = base_url.join(word.as_str()) {
-                    let new_crawl_target = CrawlTarget::from_url(to_visit.clone());
+                    let mut new_crawl_target = CrawlTarget::from_url(to_visit.clone());
                     self.send_force_browse_attempt(new_crawl_target.clone(), crawl_target.clone());
-                    let result = self.send_head_or_get(&to_visit);
+                    let result = self.send_head_or_get(&mut new_crawl_target);
 
                     match result {
                         Ok(response) => {
@@ -260,14 +270,13 @@ impl RinzlerCrawler {
         }
     }
 
-    fn send_head_or_get(&self, to_visit: &Url) -> Result<Response> {
-        let result = self.send_head(&to_visit.to_string(), RequestOptions::default());
+    fn send_head_or_get(&self, crawl_target: &mut CrawlTarget) -> Result<Response> {
+        let mut ct = crawl_target;
+        let result = self.send_head(&mut ct, RequestOptions::default());
 
         match result {
             Ok(r) => match r.status().as_u16() {
-                500..=599 => {
-                    self.send_get(&to_visit.to_string(), RequestOptions::with_partial_get())
-                }
+                500..=599 => self.send_get(&mut ct, RequestOptions::with_partial_get()),
                 _ => Ok(r),
             },
             Err(_) => result,

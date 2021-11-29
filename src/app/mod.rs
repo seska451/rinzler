@@ -2,6 +2,7 @@ use crate::config::RinzlerSettings;
 use crate::crawler::rinzler_crawler::{ControllerMessage, ControllerMessageType, RinzlerCrawler};
 use crate::ui::rinzler_console::{ConsoleMessage, ConsoleMessageType, RinzlerConsole};
 use crossbeam::channel::{unbounded, Receiver, Sender};
+use rayon::ThreadPoolBuilder;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use threadpool::ThreadPool;
@@ -13,6 +14,12 @@ pub(crate) struct RinzlerApplication {
 
 impl RinzlerApplication {
     pub fn from_settings(settings: RinzlerSettings) -> RinzlerApplication {
+        ThreadPoolBuilder::new()
+            .thread_name(|i: usize| format!("rinzler-{}", i))
+            .num_threads(45)
+            .build_global()
+            .unwrap();
+
         RinzlerApplication { settings }
     }
 

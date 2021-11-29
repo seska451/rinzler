@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local};
 use colored::{ColoredString, Colorize};
 use reqwest::blocking::Response;
-use reqwest::Url;
+use reqwest::{Method, Url};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use uuid::Uuid;
@@ -10,6 +10,7 @@ pub struct CrawlTarget {
     pub(crate) id: Uuid,
     pub status_code: Option<u16>,
     pub url: String,
+    pub method: String,
     pub(crate) timestamp: DateTime<Local>,
 }
 
@@ -19,6 +20,7 @@ impl CrawlTarget {
             id: Uuid::new_v4(),
             status_code: None,
             url: u.to_string(),
+            method: String::default(),
             timestamp: Local::now(),
         }
     }
@@ -30,16 +32,19 @@ impl Display for CrawlTarget {
             let fmt_status = Self::fmt_status_code(status_code);
             write!(
                 f,
-                "{} {} {}",
+                "{} {} {} {}",
                 self.timestamp.format("%T%.3f%z"),
+                self.method.blue(),
                 fmt_status,
                 self.url.as_str().cyan()
             )
         } else {
             write!(
                 f,
-                "{} ??? {}",
+                "{} {} {} {}",
                 self.timestamp.format("%T%.3f%z"),
+                self.method.blue(),
+                "???".on_blue(),
                 self.url.as_str().cyan()
             )
         }
@@ -67,6 +72,7 @@ impl Clone for CrawlTarget {
             id: self.id.clone(),
             status_code: self.status_code.clone(),
             url: self.url.clone(),
+            method: self.method.clone(),
             timestamp: self.timestamp.clone(),
         }
     }
@@ -78,6 +84,7 @@ impl CrawlTarget {
             id: Uuid::new_v4(),
             status_code: None,
             url: String::default(),
+            method: Method::HEAD.to_string(),
             timestamp: Local::now(),
         }
     }
@@ -87,6 +94,7 @@ impl CrawlTarget {
             id: Uuid::new_v4(),
             status_code: Some(res.status().as_u16()),
             url: res.url().to_string(),
+            method: String::default(),
             timestamp: Local::now(),
         }
     }
